@@ -71,8 +71,8 @@ struct HotKeyCombo: Codable, Equatable {
         guard !isEmpty else { return "" }
         var text = ""
         if modifiers & UInt(Self.controlFlag) != 0 { text += "⌃" }
-        if modifiers & UInt(Self.shiftFlag) != 0 { text += "⇧" }
         if modifiers & UInt(Self.optionFlag) != 0 { text += "⌥" }
+        if modifiers & UInt(Self.shiftFlag) != 0 { text += "⇧" }
         if modifiers & UInt(Self.commandFlag) != 0 { text += "⌘" }
         text += keySymbol.isEmpty ? "Key \(keyCode)" : keySymbol
         return text
