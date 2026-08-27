@@ -62,6 +62,6 @@ final class ModelCatalogTests: XCTestCase {
         }
         XCTAssertTrue(Providers.info(for: "ollama")?.requiresKey == false)
         XCTAssertEqual(
-            Providers.info(for: .cloudflare)?.credentialLabel, "API token")
+            Providers.info(for: .cloudflare).credentialLabel, "API token")
     }
 }
