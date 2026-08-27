@@ -43,10 +43,10 @@ struct HotKeyCombo: Codable, Equatable {
     /// Carbon modifier mask for `RegisterEventHotKey`.
     var carbonModifiers: UInt32 {
         var mask: UInt32 = 0
-        if modifiers & HotKeyCombo.controlFlag != 0 { mask |= UInt32(controlKey) }
-        if modifiers & HotKeyCombo.shiftFlag != 0 { mask |= UInt32(shiftKey) }
-        if modifiers & HotKeyCombo.optionFlag != 0 { mask |= UInt32(optionKey) }
-        if modifiers & HotKeyCombo.commandFlag != 0 { mask |= UInt32(cmdKey) }
+        if modifiers & UInt(HotKeyCombo.controlFlag) != 0 { mask |= UInt32(controlKey) }
+        if modifiers & UInt(HotKeyCombo.shiftFlag) != 0 { mask |= UInt32(shiftKey) }
+        if modifiers & UInt(HotKeyCombo.optionFlag) != 0 { mask |= UInt32(optionKey) }
+        if modifiers & UInt(HotKeyCombo.commandFlag) != 0 { mask |= UInt32(cmdKey) }
         return mask
     }
 
@@ -70,10 +70,10 @@ struct HotKeyCombo: Codable, Equatable {
     var displayString: String {
         guard !isEmpty else { return "" }
         var text = ""
-        if modifiers & UInt(controlFlag) != 0 { text += "⌃" }
-        if modifiers & UInt(shiftFlag) != 0 { text += "⇧" }
-        if modifiers & UInt(optionFlag) != 0 { text += "⌥" }
-        if modifiers & UInt(commandFlag) != 0 { text += "⌘" }
+        if modifiers & UInt(Self.controlFlag) != 0 { text += "⌃" }
+        if modifiers & UInt(Self.shiftFlag) != 0 { text += "⇧" }
+        if modifiers & UInt(Self.optionFlag) != 0 { text += "⌥" }
+        if modifiers & UInt(Self.commandFlag) != 0 { text += "⌘" }
         text += keySymbol.isEmpty ? "Key \(keyCode)" : keySymbol
         return text
     }

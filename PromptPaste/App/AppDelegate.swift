@@ -47,9 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Re-register hotkeys when the user changes them.
         observeShortcutChanges()
 
-        runner?.undoController.onStateChange = { [weak self] in
+        runner?.undoController.onStateChange = {
             // Menu items refresh each time the menu opens; nothing else to do.
-            _ = self
         }
 
         // Ask for Accessibility permission on first launch; without it the app

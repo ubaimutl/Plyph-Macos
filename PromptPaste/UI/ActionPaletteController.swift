@@ -101,7 +101,7 @@ final class ActionPaletteController: NSObject {
         panel.delegate = self
 
         let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 380, height: 200))
-        effect.material = .hud
+        effect.material = .menu
         effect.state = .active
         effect.blendingMode = .behindWindow
         effect.wantsLayer = true
@@ -173,9 +173,8 @@ final class ActionPaletteController: NSObject {
         let listHeight = items.reduce(0) { total, item in
             total + (item.isSeparator ? 12 : 36)
         }
-        let height = min(
-            listHeight + 56,
-            (NSScreen.main?.visibleFrame.height ?? 800) * 0.6)
+        let maxHeight: CGFloat = (NSScreen.main?.visibleFrame.height ?? 800) * 0.6
+        let height: CGFloat = min(CGFloat(listHeight + 56), maxHeight)
         panel.setContentSize(NSSize(width: 380, height: max(120, height)))
         self.panel = panel
     }

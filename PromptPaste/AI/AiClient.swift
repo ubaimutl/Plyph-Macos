@@ -282,7 +282,6 @@ struct AiClient {
 
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let text = String(data: data, encoding: .utf8) ?? ""
         var parsed: [String: Any] = [:]
         if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             parsed = object

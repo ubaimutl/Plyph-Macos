@@ -7,7 +7,7 @@ struct ProviderSectionView: View {
     let providerID: String
 
     var body: some View {
-        let info = Providers.info(for: providerID)
+        let info = Providers.info(for: providerID) ?? Providers.all[0]
         VStack(alignment: .leading, spacing: 10) {
             if providerID == ProviderID.ollama.rawValue {
                 OllamaSection()
@@ -162,7 +162,7 @@ struct ModelPickerView: View {
     @State private var customDraft = ""
 
     private var info: ProviderInfo {
-        Providers.info(for: providerID)
+        Providers.info(for: providerID) ?? Providers.all[0]
     }
 
     private var currentModel: String {
