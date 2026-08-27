@@ -38,11 +38,22 @@ enum RequestInputMode {
 }
 
 /// The action being run, mirroring the GNOME `transform()` modes.
-enum RunMode {
+enum RunMode: Equatable {
     case correct
     case rewrite
     case prompt
     case custom(CustomAction)
+
+    static func == (lhs: RunMode, rhs: RunMode) -> Bool {
+        switch (lhs, rhs) {
+        case (.correct, .correct), (.rewrite, .rewrite), (.prompt, .prompt):
+            return true
+        case let (.custom(left), .custom(right)):
+            return left == right
+        default:
+            return false
+        }
+    }
 }
 
 /// Per-run overrides (provider, model, limits, input mode), equivalent to the

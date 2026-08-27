@@ -10,6 +10,12 @@ enum KeychainStore {
     enum KeychainError: LocalizedError {
         case unavailable(OSStatus)
 
+        var status: OSStatus {
+            switch self {
+            case .unavailable(let status): return status
+            }
+        }
+
         var errorDescription: String? {
             switch self {
             case .unavailable(let status):

@@ -67,7 +67,7 @@ enum ClipboardStore {
             for (type, data) in stored {
                 item.setData(data, forType: type)
             }
-            pasteboard.writeObject(item)
+            pasteboard.writeObjects([item])
         }
     }
 }
