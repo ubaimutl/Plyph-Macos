@@ -19,12 +19,12 @@ final class ActionRunner: ObservableObject {
     private var previewController: PreviewController?
 
     init(
-        settings: SettingsStore = SettingsStore.shared,
-        hud: FeedbackHUD = FeedbackHUD.shared,
+        settings: SettingsStore? = nil,
+        hud: FeedbackHUD? = nil,
         statusIcons: StatusItemController? = nil
     ) {
-        self.settings = settings
-        self.hud = hud
+        self.settings = settings ?? SettingsStore.shared
+        self.hud = hud ?? FeedbackHUD.shared
         self.statusIcons = statusIcons
         self.undoController = UndoController()
     }
