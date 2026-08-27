@@ -67,8 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.hotkeyManagerRefreshDebounce?.cancel()
             self?.hotkeyManagerRefreshDebounce = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 200_000_000)
-                guard let self, !Task.isCancelled else { return }
-                HotkeyManager.shared.refresh()
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard self != nil else { return }
+                    HotkeyManager.shared.refresh()
+                }
             }
         }
     }
