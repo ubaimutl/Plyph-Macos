@@ -38,7 +38,7 @@ enum AXElement {
         let error = AXUIElementCopyAttributeValue(
             systemWide, kAXFocusedUIElementAttribute as CFString, &value)
         guard error == .success, let raw = value else { return nil }
-        return (raw as AnyObject) as? AXUIElement
+        return raw as! AXUIElement
     }
 
     static func selectedText(of element: AXUIElement) -> String? {

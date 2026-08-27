@@ -19,8 +19,8 @@ final class ActionRunner: ObservableObject {
     private var previewController: PreviewController?
 
     init(
-        settings: SettingsStore = .shared,
-        hud: FeedbackHUD = .shared,
+        settings: SettingsStore = SettingsStore.shared,
+        hud: FeedbackHUD = FeedbackHUD.shared,
         statusIcons: StatusItemController? = nil
     ) {
         self.settings = settings

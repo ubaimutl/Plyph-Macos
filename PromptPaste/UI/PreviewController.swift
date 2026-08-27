@@ -12,6 +12,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
     private var expandButton: NSButton?
     private var compactFrame = NSRect.zero
     private var expanded = false
+    private let result: String
 
     private let onReplace: (String) -> Void
     private let onCopy: (String) -> Void
@@ -19,6 +20,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
 
     init(result: String, onReplace: @escaping (String) -> Void,
          onCopy: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.result = result
         self.onReplace = onReplace
         self.onCopy = onCopy
         self.onCancel = onCancel
@@ -79,7 +81,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 560, height: 260))
         text.isEditable = true
         text.isSelectable = true
-        text.richText = false
+        text.isRichText = false
         text.font = .systemFont(ofSize: 13)
         text.string = result
         text.isVerticallyResizable = true
@@ -144,7 +146,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
                 total + max(1, Int(ceil(Double(line.count) / 70.0)))
             }
         let width = min(680, max(500, screenWidth * 0.4))
-        let height = min(
+        let height: CGFloat = min(
             max(200, screenHeight * 0.5),
             max(96, CGFloat(estimatedLines) * 21 + 24))
         compactFrame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -177,7 +179,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
         let wrapOn = (wrapButton?.state ?? .on) == .on
         text.textContainer?.widthTracksTextView = wrapOn
         if !wrapOn {
-            text.textContainer?.containerSize = NSSize(width: 10_000, height: .greatestFiniteMagnitude)
+            text.textContainer?.containerSize = NSSize(width: 10_000, height: CGFloat.greatestFiniteMagnitude)
         }
         text.needsLayout = true
     }
