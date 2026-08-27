@@ -55,16 +55,16 @@ jobs:
 
       - name: Package unsigned app
         run: |
-          mkdir -p "$RUNNER_TEMP/artifact"
+          mkdir -p artifact
           ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/PromptPaste.app" \
-            "$RUNNER_TEMP/artifact/PromptPaste.app"
+            "artifact/PromptPaste.app"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
-            "$RUNNER_TEMP/artifact/PromptPaste.app" \
-            "$RUNNER_TEMP/artifact/PromptPaste-macOS.zip"
+            "artifact/PromptPaste.app" \
+            "artifact/PromptPaste-macOS.zip"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
           name: PromptPaste-macOS
-          path: "$RUNNER_TEMP/artifact/PromptPaste-macOS.zip"
+          path: artifact/PromptPaste-macOS.zip
           if-no-files-found: error
