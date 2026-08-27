@@ -1,0 +1,322 @@
+import AppKit
+
+/// The floating action palette: a lightweight, non-activating panel with
+/// keyboard navigation (Up/Down/Enter/Escape), positioned at the screen center
+/// or near the pointer depending on the `action-palette-position` setting —
+/// the closest macOS equivalent of the GNOME ActionPalette dialog.
+@MainActor
+final class ActionPaletteController: NSObject {
+    static let shared = ActionPaletteController()
+
+    private var panel: NSPanel?
+    private var table: NSTableView?
+    private var items: [PaletteItem] = []
+    private var selectedRow = 0
+    private var modeHandler: ((RunMode) -> Void)?
+    private var keyboardView: PaletteKeyboardView?
+
+    struct PaletteItem {
+        let name: String
+        let icon: NSImage?
+        let mode: RunMode
+        let isSeparator: Bool
+    }
+
+    override private init() {
+        super.init()
+    }
+
+    var isOpen: Bool { panel != nil }
+
+    func show(modeHandler: @escaping (RunMode) -> Void) {
+        guard panel == nil else { return }
+        self.modeHandler = modeHandler
+        buildItems()
+        buildPanel()
+        positionPanel()
+        selectedRow = 0
+        table?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        table?.scrollRowToVisible(0)
+        panel?.makeKeyAndOrderFront(nil)
+        keyboardView?.window?.makeFirstResponder(keyboardView)
+    }
+
+    func close() {
+        guard let panel else { return }
+        self.panel = nil
+        panel.orderOut(nil)
+        panel.close()
+    }
+
+    // MARK: Items (GNOME parity: built-ins, separator, enabled custom actions)
+
+    private func buildItems() {
+        let settings = SettingsStore.shared
+        items = [
+            PaletteItem(
+                name: "Correct selected text", icon: image("text.badge.checkmark"),
+                mode: .correct, isSeparator: false),
+            PaletteItem(
+                name: "Rewrite selected text", icon: image("square.and.pencil"),
+                mode: .rewrite, isSeparator: false),
+            PaletteItem(
+                name: "Run selected prompt", icon: image("gearshape"),
+                mode: .prompt, isSeparator: false),
+        ]
+        let actions = settings.enabledCustomActions
+        for action in actions {
+            items.append(
+                PaletteItem(
+                    name: action.name, icon: image("gearshape"),
+                    mode: .custom(action), isSeparator: false))
+        }
+        if !actions.isEmpty {
+            items.insert(
+                PaletteItem(
+                    name: "", icon: nil, mode: .correct, isSeparator: true),
+                at: 3)
+        }
+    }
+
+    private func image(_ symbol: String) -> NSImage? {
+        NSImage(
+            systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
+    }
+
+    // MARK: Panel construction
+
+    private func buildPanel() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        panel.delegate = self
+
+        let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 380, height: 200))
+        effect.material = .hud
+        effect.state = .active
+        effect.blendingMode = .behindWindow
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 14
+        effect.layer?.cornerCurve = .continuous
+        effect.layer?.masksToBounds = true
+        panel.contentView = effect
+
+        // Header
+        let title = NSTextField(labelWithString: "PromptPaste")
+        title.font = .boldSystemFont(ofSize: 14)
+        title.alignment = .center
+        let close = NSButton(title: "", target: self, action: #selector(closeClicked))
+        close.isBordered = false
+        close.image = NSImage(
+            systemSymbolName: "xmark.circle", accessibilityDescription: "Close palette")
+        close.translatesAutoresizingMaskIntoConstraints = false
+
+        let table = NSTableView()
+        table.headerView = nil
+        table.rowHeight = 36
+        table.backgroundColor = .clear
+        table.selectionHighlightStyle = .regular
+        table.intercellSpacing = NSSize(width: 0, height: 0)
+        table.style = .fullWidth
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("action"))
+        table.addTableColumn(column)
+        table.dataSource = self
+        table.delegate = self
+        table.target = self
+        table.action = #selector(rowClicked)
+        self.table = table
+
+        let scroll = NSScrollView()
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+
+        effect.addSubview(title)
+        effect.addSubview(close)
+        effect.addSubview(scroll)
+
+        let keyboard = PaletteKeyboardView(frame: .zero)
+        keyboard.onKeyDown = { [weak self] event in
+            self?.handleKey(event)
+        }
+        self.keyboardView = keyboard
+        keyboard.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(keyboard)
+
+        NSLayoutConstraint.activate([
+            title.topAnchor.constraint(equalTo: effect.topAnchor, constant: 14),
+            title.centerXAnchor.constraint(equalTo: effect.centerXAnchor),
+            close.topAnchor.constraint(equalTo: effect.topAnchor, constant: 8),
+            close.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -8),
+            close.widthAnchor.constraint(equalToConstant: 24),
+            close.heightAnchor.constraint(equalToConstant: 24),
+            scroll.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10),
+            scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 10),
+            scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -10),
+            scroll.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
+            keyboard.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            keyboard.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            keyboard.topAnchor.constraint(equalTo: effect.topAnchor),
+            keyboard.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+
+        let listHeight = items.reduce(0) { total, item in
+            total + (item.isSeparator ? 12 : 36)
+        }
+        let height = min(
+            listHeight + 56,
+            (NSScreen.main?.visibleFrame.height ?? 800) * 0.6)
+        panel.setContentSize(NSSize(width: 380, height: max(120, height)))
+        self.panel = panel
+    }
+
+    private func positionPanel() {
+        guard let panel else { return }
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main
+        guard let screen else { return }
+
+        if SettingsStore.shared.actionPalettePosition == "monitor-center" {
+            let visible = screen.visibleFrame
+            let origin = NSPoint(
+                x: visible.midX - panel.frame.width / 2,
+                y: visible.midY - panel.frame.height / 2)
+            panel.setFrameOrigin(origin)
+        } else {
+            // Near pointer: like a context menu, clamped to the screen.
+            var x = mouse.x + 8
+            var y = mouse.y - panel.frame.height - 8
+            x = min(max(x, screen.visibleFrame.minX),
+                    screen.visibleFrame.maxX - panel.frame.width)
+            y = min(max(y, screen.visibleFrame.minY),
+                    screen.visibleFrame.maxY - panel.frame.height)
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+    }
+
+    // MARK: Interaction
+
+    private func handleKey(_ event: NSEvent) {
+        switch Int(event.keyCode) {
+        case 126:  // Up
+            moveSelection(-1)
+        case 125:  // Down
+            moveSelection(1)
+        case 36, 76:  // Return / keypad Enter
+            activateSelection()
+        case 53:  // Escape
+            close()
+        default:
+            break
+        }
+    }
+
+    private func moveSelection(_ offset: Int) {
+        guard let table else { return }
+        let rows = items.enumerated().filter { !$0.element.isSeparator }.map(\.offset)
+        guard !rows.isEmpty else { return }
+        let currentIndex = rows.firstIndex(of: selectedRow) ?? 0
+        let nextIndex = (currentIndex + offset + rows.count) % rows.count
+        selectedRow = rows[nextIndex]
+        table.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+        table.scrollRowToVisible(selectedRow)
+    }
+
+    private func activateSelection() {
+        guard selectedRow < items.count else { return }
+        let item = items[selectedRow]
+        close()
+        modeHandler?(item.mode)
+    }
+
+    @objc private func closeClicked() {
+        close()
+    }
+
+    @objc private func rowClicked() {
+        let clicked = table?.clickedRow ?? -1
+        guard clicked >= 0 else { return }
+        selectedRow = clicked
+        activateSelection()
+    }
+}
+
+// MARK: - Table data
+
+extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        items.count
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        items[row].isSeparator ? 12 : 36
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int)
+        -> NSView?
+    {
+        let item = items[row]
+        if item.isSeparator {
+            let box = NSBox()
+            box.boxType = .separator
+            return box
+        }
+        let container = NSStackView()
+        container.orientation = .horizontal
+        container.spacing = 10
+        container.alignment = .centerY
+        container.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        if let icon = item.icon {
+            let imageView = NSImageView(image: icon)
+            imageView.contentTintColor = .secondaryLabelColor
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.widthAnchor.constraint(equalToConstant: 18).isActive = true
+            container.addArrangedSubview(imageView)
+        }
+        let label = NSTextField(labelWithString: item.name)
+        label.lineBreakMode = .byTruncatingTail
+        container.addArrangedSubview(label)
+        return container
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        !items[row].isSeparator
+    }
+}
+
+// MARK: - Panel delegate (close when the palette loses key focus)
+
+extension ActionPaletteController: NSWindowDelegate {
+    func windowDidResignKey(_ notification: Notification) {
+        close()
+    }
+}
+
+// MARK: - Keyboard view
+
+/// Invisible view that accepts first responder inside the palette panel and
+/// forwards key events to the controller.
+final class PaletteKeyboardView: NSView {
+    var onKeyDown: ((NSEvent) -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        onKeyDown?(event)
+    }
+
+    override func viewDidMoveToWindow() {
+        window?.makeFirstResponder(self)
+    }
+}

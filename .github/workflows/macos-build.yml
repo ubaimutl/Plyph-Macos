@@ -1,0 +1,69 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      SCHEME: PromptPaste
+      PROJECT: PromptPaste.xcodeproj
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build application
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify || xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Run unit tests
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/TestDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Package unsigned app
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifact"
+          ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/PromptPaste.app" \
+            "$RUNNER_TEMP/artifact/PromptPaste.app"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/artifact/PromptPaste.app" \
+            "$RUNNER_TEMP/artifact/PromptPaste-macOS.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PromptPaste-macOS
+          path: "$RUNNER_TEMP/artifact/PromptPaste-macOS.zip"
+          if-no-files-found: error

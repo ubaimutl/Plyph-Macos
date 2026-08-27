@@ -1,0 +1,25 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager caches (if used locally)
+.build/
+.swiftpm/
+
+# Local signing and secrets
+*.p12
+*.mobileprovision
+.env
+.env.*
+!.env.example
+
+# IDE/editor
+.vscode/
+.idea/
