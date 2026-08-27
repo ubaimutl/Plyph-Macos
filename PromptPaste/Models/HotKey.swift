@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Foundation
 
@@ -109,49 +110,49 @@ struct HotKeyCombo: Codable, Equatable {
     private static let symbolTable: [UInt16: String] = {
         var table: [UInt16: String] = [:]
         let letters: [(UInt16, String)] = [
-            (kVK_ANSI_A, "A"), (kVK_ANSI_B, "B"), (kVK_ANSI_C, "C"), (kVK_ANSI_D, "D"),
-            (kVK_ANSI_E, "E"), (kVK_ANSI_F, "F"), (kVK_ANSI_G, "G"), (kVK_ANSI_H, "H"),
-            (kVK_ANSI_I, "I"), (kVK_ANSI_J, "J"), (kVK_ANSI_K, "K"), (kVK_ANSI_L, "L"),
-            (kVK_ANSI_M, "M"), (kVK_ANSI_N, "N"), (kVK_ANSI_O, "O"), (kVK_ANSI_P, "P"),
-            (kVK_ANSI_Q, "Q"), (kVK_ANSI_R, "R"), (kVK_ANSI_S, "S"), (kVK_ANSI_T, "T"),
-            (kVK_ANSI_U, "U"), (kVK_ANSI_V, "V"), (kVK_ANSI_W, "W"), (kVK_ANSI_X, "X"),
-            (kVK_ANSI_Y, "Y"), (kVK_ANSI_Z, "Z"),
+            (UInt16(kVK_ANSI_A), "A"), (UInt16(kVK_ANSI_B), "B"), (UInt16(kVK_ANSI_C), "C"), (UInt16(kVK_ANSI_D), "D"),
+            (UInt16(kVK_ANSI_E), "E"), (UInt16(kVK_ANSI_F), "F"), (UInt16(kVK_ANSI_G), "G"), (UInt16(kVK_ANSI_H), "H"),
+            (UInt16(kVK_ANSI_I), "I"), (UInt16(kVK_ANSI_J), "J"), (UInt16(kVK_ANSI_K), "K"), (UInt16(kVK_ANSI_L), "L"),
+            (UInt16(kVK_ANSI_M), "M"), (UInt16(kVK_ANSI_N), "N"), (UInt16(kVK_ANSI_O), "O"), (UInt16(kVK_ANSI_P), "P"),
+            (UInt16(kVK_ANSI_Q), "Q"), (UInt16(kVK_ANSI_R), "R"), (UInt16(kVK_ANSI_S), "S"), (UInt16(kVK_ANSI_T), "T"),
+            (UInt16(kVK_ANSI_U), "U"), (UInt16(kVK_ANSI_V), "V"), (UInt16(kVK_ANSI_W), "W"), (UInt16(kVK_ANSI_X), "X"),
+            (UInt16(kVK_ANSI_Y), "Y"), (UInt16(kVK_ANSI_Z), "Z"),
         ]
         for (code, symbol) in letters { table[code] = symbol }
         let digits: [(UInt16, String)] = [
-            (kVK_ANSI_0, "0"), (kVK_ANSI_1, "1"), (kVK_ANSI_2, "2"), (kVK_ANSI_3, "3"),
-            (kVK_ANSI_4, "4"), (kVK_ANSI_5, "5"), (kVK_ANSI_6, "6"), (kVK_ANSI_7, "7"),
-            (kVK_ANSI_8, "8"), (kVK_ANSI_9, "9"),
+            (UInt16(kVK_ANSI_0), "0"), (UInt16(kVK_ANSI_1), "1"), (UInt16(kVK_ANSI_2), "2"), (UInt16(kVK_ANSI_3), "3"),
+            (UInt16(kVK_ANSI_4), "4"), (UInt16(kVK_ANSI_5), "5"), (UInt16(kVK_ANSI_6), "6"), (UInt16(kVK_ANSI_7), "7"),
+            (UInt16(kVK_ANSI_8), "8"), (UInt16(kVK_ANSI_9), "9"),
         ]
         for (code, symbol) in digits { table[code] = symbol }
-        table[kVK_Space] = "Space"
-        table[kVK_Return] = "↩"
-        table[kVK_Tab] = "⇥"
-        table[kVK_Escape] = "⎋"
-        table[kVK_Delete] = "⌫"
-        table[kVK_ForwardDelete] = "⌦"
-        table[kVK_LeftArrow] = "←"
-        table[kVK_RightArrow] = "→"
-        table[kVK_UpArrow] = "↑"
-        table[kVK_DownArrow] = "↓"
-        table[kVK_Home] = "↖"
-        table[kVK_End] = "↘"
-        table[kVK_PageUp] = "⇞"
-        table[kVK_PageDown] = "⇟"
+        table[UInt16(kVK_Space)] = "Space"
+        table[UInt16(kVK_Return)] = "↩"
+        table[UInt16(kVK_Tab)] = "⇥"
+        table[UInt16(kVK_Escape)] = "⎋"
+        table[UInt16(kVK_Delete)] = "⌫"
+        table[UInt16(kVK_ForwardDelete)] = "⌦"
+        table[UInt16(kVK_LeftArrow)] = "←"
+        table[UInt16(kVK_RightArrow)] = "→"
+        table[UInt16(kVK_UpArrow)] = "↑"
+        table[UInt16(kVK_DownArrow)] = "↓"
+        table[UInt16(kVK_Home)] = "↖"
+        table[UInt16(kVK_End)] = "↘"
+        table[UInt16(kVK_PageUp)] = "⇞"
+        table[UInt16(kVK_PageDown)] = "⇟"
         for index in 0..<19 {
             table[UInt16(kVK_F1 + index)] = "F\(index + 1)"
         }
-        table[kVK_ANSI_Minus] = "-"
-        table[kVK_ANSI_Equal] = "="
-        table[kVK_ANSI_LeftBracket] = "["
-        table[kVK_ANSI_RightBracket] = "]"
-        table[kVK_ANSI_Semicolon] = ";"
-        table[kVK_ANSI_Quote] = "'"
-        table[kVK_ANSI_Comma] = ","
-        table[kVK_ANSI_Period] = "."
-        table[kVK_ANSI_Slash] = "/"
-        table[kVK_ANSI_Backslash] = "\\"
-        table[kVK_ANSI_Grave] = "`"
+        table[UInt16(kVK_ANSI_Minus)] = "-"
+        table[UInt16(kVK_ANSI_Equal)] = "="
+        table[UInt16(kVK_ANSI_LeftBracket)] = "["
+        table[UInt16(kVK_ANSI_RightBracket)] = "]"
+        table[UInt16(kVK_ANSI_Semicolon)] = ";"
+        table[UInt16(kVK_ANSI_Quote)] = "'"
+        table[UInt16(kVK_ANSI_Comma)] = ","
+        table[UInt16(kVK_ANSI_Period)] = "."
+        table[UInt16(kVK_ANSI_Slash)] = "/"
+        table[UInt16(kVK_ANSI_Backslash)] = "\\"
+        table[UInt16(kVK_ANSI_Grave)] = "`"
         return table
     }()
 }

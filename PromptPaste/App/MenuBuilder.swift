@@ -22,7 +22,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
         guard let appDelegate else { return }
-        let runner = appDelegate.runner
+        guard let runner = appDelegate.runner else { return }
         let settings = SettingsStore.shared
 
         // Accessibility guidance when the app cannot work yet.
@@ -93,7 +93,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
 
     @objc private func undoClicked(_ sender: NSMenuItem) {
         guard let appDelegate else { return }
-        let runner = appDelegate.runner
+        guard let runner = appDelegate.runner else { return }
         Task {
             if let message = await runner.undoController.perform(
                 frontmost: NSWorkspace.shared.frontmostApplication)

@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
 
     private(set) var statusItemController: StatusItemController?
-    private(set) lazy var runner = ActionRunner()
+    private(set) var runner: ActionRunner?
     private var menuBuilder: MenuBuilder?
 
     static var isRunningTests: Bool {
@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !Self.isRunningTests else { return }
 
         // Menu bar item.
+        runner = ActionRunner()
         let statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength)
         let controller = StatusItemController(statusItem: statusItem)
@@ -35,18 +36,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch identifier {
             case .correct:
-                Task { await self.runner.run(mode: .correct) }
+                Task { await self.runner?.run(mode: .correct) }
             case .rewrite:
-                Task { await self.runner.run(mode: .rewrite) }
+                Task { await self.runner?.run(mode: .rewrite) }
             case .actions:
-                self.runner.openActionPalette()
+                self.runner?.openActionPalette()
             }
         }
 
         // Re-register hotkeys when the user changes them.
         observeShortcutChanges()
 
-        runner.undoController.onStateChange = { [weak self] in
+        runner?.undoController.onStateChange = { [weak self] in
             // Menu items refresh each time the menu opens; nothing else to do.
             _ = self
         }
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManagerRefreshDebounce: Task<Void, Never>?
 
     func applicationWillTerminate(_ notification: Notification) {
-        runner.undoController.clear()
+        runner?.undoController.clear()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
