@@ -264,12 +264,12 @@ final class SelectionDotController: NSObject {
 
         // Calculate Position
         let pos: NSPoint
-        if let target = selectedElement, let pt = selectionEndPoint(element: target, primaryScreenHeight: primaryScreenHeight) {
+        if let target = selectedElement, let pt = selectionEndPoint(element: target, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
             pos = pt
-        } else if let el = element, let pt = selectionEndPoint(element: el, primaryScreenHeight: primaryScreenHeight) {
+        } else if let el = element, let pt = selectionEndPoint(element: el, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
             pos = pt
         } else {
-            pos = NSPoint(x: mouseLocation.x + 14, y: mouseLocation.y + 14)
+            pos = NSPoint(x: mouseLocation.x + 12, y: mouseLocation.y + 4)
         }
 
         showDot(at: pos)
@@ -297,7 +297,7 @@ final class SelectionDotController: NSObject {
 
     // MARK: - Systemwide Selection Geometry (PopClip Method)
 
-    private func selectionEndPoint(element: AXUIElement, primaryScreenHeight: CGFloat) -> NSPoint? {
+    private func selectionEndPoint(element: AXUIElement, primaryScreenHeight: CGFloat, mouseLocation: NSPoint) -> NSPoint? {
         // 1. Cocoa Standard Range Bounds (NSTextView, TextEdit, Pages, Xcode, Notes, Cocoa controls)
         var rangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
@@ -311,7 +311,7 @@ final class SelectionDotController: NSObject {
                let boundsRef {
                 var rect = CGRect.zero
                 if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight) {
+                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
                         return pt
                     }
                 }
@@ -331,7 +331,7 @@ final class SelectionDotController: NSObject {
                let boundsRef {
                 var rect = CGRect.zero
                 if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight) {
+                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
                         return pt
                     }
                 }
@@ -341,14 +341,35 @@ final class SelectionDotController: NSObject {
         return nil
     }
 
-    private func validateAndConvert(rect: CGRect, primaryScreenHeight: CGFloat) -> NSPoint? {
-        // BOGUS bounds check: Validate bounds are realistic (not 0, not whole window, not offscreen)
+    private func validateAndConvert(rect: CGRect, primaryScreenHeight: CGFloat, mouseLocation: NSPoint) -> NSPoint? {
+        // Bounds sanity check
         guard rect.width > 0, rect.height > 0 else { return nil }
-        guard rect.height <= 200, rect.width <= 1600 else { return nil }
+        guard rect.height <= 250, rect.width <= 2500 else { return nil }
 
         // Convert Carbon/AX screen coordinates (origin top-left) to Cocoa screen coordinates (origin bottom-left)
         let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
-        return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
+
+        // Web Editor & Full-Width Paragraph Fallback (Crucial PopClip Fix):
+        // In web editors (Notepad, Docs, Reddit, Chrome, Safari contenteditable),
+        // Chromium often returns the bounding rect of the whole block element (<p>, <div>, 700px+).
+        // If the AX bounding rect's right edge is far away (> 70px) from where the user
+        // actually released the mouse, we anchor the X position directly to the mouse cursor release point!
+        let anchorX: CGFloat
+        if abs(rect.maxX - mouseLocation.x) > 70 {
+            anchorX = mouseLocation.x + 8
+        } else {
+            anchorX = rect.maxX + 8
+        }
+
+        // Vertically align to the text line if close, otherwise anchor to mouse release Y
+        let anchorY: CGFloat
+        if abs((cocoaY + rect.height / 2) - mouseLocation.y) < 60 {
+            anchorY = cocoaY + rect.height / 2
+        } else {
+            anchorY = mouseLocation.y
+        }
+
+        return NSPoint(x: anchorX, y: anchorY)
     }
 
     // MARK: - Dot Panel UI & Clamping
@@ -462,8 +483,8 @@ private final class DotButtonView: NSView {
 
         // Native Dark Glass / PopClip aesthetic
         let fillColor = hovered
-            ? NSColor(white: 0.12, alpha: 0.95)
-            : NSColor(white: 0.18, alpha: 0.90)
+            ? NSColor(white: 0.08, alpha: 0.98)
+            : NSColor(white: 0.02, alpha: 0.95)
         fillColor.setFill()
         circle.fill()
 
@@ -472,17 +493,15 @@ private final class DotButtonView: NSView {
         circle.lineWidth = 1.0
         circle.stroke()
 
-        if let symbol = NSImage(
-            systemSymbolName: "wand.and.stars",
-            accessibilityDescription: "PromptPaste"
-        )?.withSymbolConfiguration(.init(pointSize: 13, weight: .semibold)) {
-            let symbolSize = symbol.size
-            let symbolRect = NSRect(
-                x: floor((bounds.width - symbolSize.width) / 2),
-                y: floor((bounds.height - symbolSize.height) / 2),
-                width: symbolSize.width,
-                height: symbolSize.height)
-            symbol.draw(in: symbolRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+        // Draw the white PromptPaste logo icon
+        if let logo = NSImage(named: "SelectionDotIcon") ?? NSImage(named: "MenuBarIcon") {
+            let iconSize: CGFloat = 16
+            let iconRect = NSRect(
+                x: floor((bounds.width - iconSize) / 2),
+                y: floor((bounds.height - iconSize) / 2),
+                width: iconSize,
+                height: iconSize)
+            logo.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
         }
     }
 }
