@@ -52,8 +52,9 @@ final class SelectionDotController: NSObject {
             matching: [.leftMouseUp]
         ) { [weak self] _ in
             guard let self else { return }
+            let loc = NSEvent.mouseLocation
             Task { @MainActor in
-                self.scheduleCheck()
+                self.scheduleCheck(mouseLocation: loc)
             }
         }
 
@@ -61,8 +62,9 @@ final class SelectionDotController: NSObject {
             matching: [.leftMouseUp]
         ) { [weak self] event in
             guard let self else { return event }
+            let loc = NSEvent.mouseLocation
             Task { @MainActor in
-                self.scheduleCheck()
+                self.scheduleCheck(mouseLocation: loc)
             }
             return event
         }
@@ -79,20 +81,20 @@ final class SelectionDotController: NSObject {
         }
     }
 
-    private func scheduleCheck() {
+    private func scheduleCheck(mouseLocation: NSPoint) {
         debounceTask?.cancel()
         debounceTask = Task { [weak self] in
             guard let self else { return }
             // 250 ms debounce gives the host application time to commit the selection.
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-            self.evaluateCurrentSelection()
+            self.evaluateCurrentSelection(mouseLocation: mouseLocation)
         }
     }
 
     // MARK: Selection evaluation
 
-    private func evaluateCurrentSelection() {
+    private func evaluateCurrentSelection(mouseLocation: NSPoint) {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else { return }
         if frontApp.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
 
@@ -140,7 +142,7 @@ final class SelectionDotController: NSObject {
         if let targetElement, let pt = selectionEndPoint(element: targetElement) {
             pos = pt
         } else {
-            pos = nearMouse()
+            pos = NSPoint(x: mouseLocation.x + 14, y: mouseLocation.y + 14)
         }
         showDot(at: pos)
     }
@@ -158,14 +160,15 @@ final class SelectionDotController: NSObject {
               let boundsRef else { return nil }
         var rect = CGRect.zero
         guard AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) else { return nil }
+        
+        // BOGUS bounds check: If the returned rect is massive, Chrome/Electron returned the WebArea bounds.
+        if rect.height > 60 || rect.width > 400 {
+            return nil
+        }
+        
         let screenH = NSScreen.screens.first?.frame.height ?? 0
         let cocoaY = screenH - rect.origin.y - rect.height
         return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
-    }
-
-    private func nearMouse() -> NSPoint {
-        let m = NSEvent.mouseLocation
-        return NSPoint(x: m.x + 14, y: m.y + 14)
     }
 
     // MARK: Dot panel
