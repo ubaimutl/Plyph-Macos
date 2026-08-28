@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// General tab: active provider + provider settings (credentials, models),
-/// shortcuts, behavior switches and the selection-capture compatibility list.
+/// General tab: active provider, shortcuts, and behavior settings.
 struct GeneralSettingsView: View {
     @EnvironmentObject private var settings: SettingsStore
     @State private var accessibilityTrusted = AXAccess.isTrusted
@@ -15,7 +14,6 @@ struct GeneralSettingsView: View {
                 }
                 shortcutsGroup
                 behaviorGroup
-                captureGroup
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -129,26 +127,6 @@ struct GeneralSettingsView: View {
             .padding(4)
         } label: {
             Text("Behavior")
-        }
-    }
-
-    private var captureGroup: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Compatibility apps", text: $settings.explicitCopyApps)
-                    .textFieldStyle(.roundedBorder)
-                Text(
-                    "Some apps do not expose the selected text through Accessibility. "
-                        + "For listed apps PromptPaste sends ⌘C and reads the regular "
-                        + "clipboard instead, restoring it afterwards. Comma or newline "
-                        + "separated (matched against app bundle IDs and names, e.g. "
-                        + "“firefox”). Avoid terminals unless ⌘C copies text there.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(4)
-        } label: {
-            Text("Selection capture")
         }
     }
 }
