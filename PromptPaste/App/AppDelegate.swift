@@ -28,8 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = appIcon
         }
 
+        // A menu-bar icon should occupy one normal square slot. Using
+        // variableLength with a large vector asset can make AppKit reserve the
+        // vector's intrinsic width and push the item out of the visible bar.
         let statusItem = NSStatusBar.system.statusItem(
-            withLength: NSStatusItem.variableLength)
+            withLength: NSStatusItem.squareLength)
         statusItem.isVisible = true
         let controller = StatusItemController(statusItem: statusItem)
         statusItemController = controller
