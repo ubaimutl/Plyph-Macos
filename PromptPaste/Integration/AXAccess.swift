@@ -129,24 +129,33 @@ enum AXElement {
 /// dispatch the standard Cocoa `paste:` selector through its native responder
 /// chain directly into the active WebContent / WKWebView DOM selection.
 enum AXMenuAction {
+    @MainActor
     @discardableResult
-    static func performPaste(in app: NSRunningApplication) -> Bool {
+    static func performPaste(in app: NSRunningApplication) async -> Bool {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var menuBarRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
-              let menuBarRef else { return false }
-        let menuBar = unsafeBitCast(menuBarRef, to: AXUIElement.self)
-
-        var childrenRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            menuBar, kAXChildrenAttribute as CFString, &childrenRef) == .success,
-              let menus = childrenRef as? [AXUIElement] else { return false }
-
-        for menu in menus {
-            if searchAndPressPaste(in: menu) {
-                return true
+        
+        // Wait up to 1.5 seconds for the Paste menu to become available and enabled
+        let deadline = Date().addingTimeInterval(1.5)
+        while Date() < deadline {
+            var menuBarRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+               let menuBarRef {
+                let menuBar = unsafeBitCast(menuBarRef, to: AXUIElement.self)
+                var childrenRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(
+                    menuBar, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                   let menus = childrenRef as? [AXUIElement] {
+                    
+                    for menu in menus {
+                        if searchAndPressPaste(in: menu) {
+                            return true
+                        }
+                    }
+                }
             }
+            // If not found or not enabled yet, sleep and poll again. (VMs are slow to restore DOM caret)
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
         return false
     }
@@ -156,13 +165,20 @@ enum AXMenuAction {
         if AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRef) == .success,
            let title = titleRef as? String {
             let lower = title.lowercased()
-            // Match standard localized "Paste" commands (English, German, French, Spanish, Italian, Japanese, Chinese, etc.)
+            // Match standard localized "Paste" commands
             if lower.hasPrefix("paste") || lower.hasPrefix("einsetzen") || lower.hasPrefix("coller") ||
                lower.hasPrefix("pegar") || lower.hasPrefix("incolla") || lower.hasPrefix("貼") || lower.hasPrefix("粘") {
-                let err = AXUIElementPerformAction(element, kAXPressAction as CFString)
-                if err == .success {
-                    return true
+                
+                var enabledRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabledRef) == .success,
+                   let enabled = enabledRef as? Bool, enabled == true {
+                    let err = AXUIElementPerformAction(element, kAXPressAction as CFString)
+                    if err == .success {
+                        return true
+                    }
                 }
+                // If it's the paste button but it's disabled, return false immediately so we can poll again
+                return false
             }
         }
 

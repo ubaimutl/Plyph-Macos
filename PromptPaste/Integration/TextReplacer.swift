@@ -65,12 +65,12 @@ enum TextReplacer {
         // Tier 3: Try native Accessibility Edit › Paste menu action (Works on Safari/Chrome when window is key)
         var pastedViaMenu = false
         if let targetApp {
-            pastedViaMenu = AXMenuAction.performPaste(in: targetApp)
+            pastedViaMenu = await AXMenuAction.performPaste(in: targetApp)
         }
 
-        // Tier 4: Fallback to simulated Cmd+V shortcut with explicit modifier events
+        // Tier 4: Fallback to simulated Cmd+V shortcut with explicit modifier events (or AppleScript for Safari)
         if !pastedViaMenu {
-            KeyPoster.postPaste(to: targetApp?.processIdentifier)
+            KeyPoster.postPaste(to: targetApp)
         }
 
         // Allow target app time to process the paste event before restoring
@@ -82,10 +82,10 @@ enum TextReplacer {
         return true
     }
 
-    static func sendUndo() async {
+    static func sendUndo(to targetApp: NSRunningApplication?) async {
         guard await KeyPoster.waitModifiersReleased() else { return }
         try? await Task.sleep(nanoseconds: 25_000_000)
-        KeyPoster.postUndo()
+        KeyPoster.postUndo(to: targetApp)
     }
 
     private static func waitForApp(_ app: NSRunningApplication, timeout: TimeInterval) async {

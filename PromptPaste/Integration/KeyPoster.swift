@@ -33,19 +33,48 @@ enum KeyPoster {
         return false
     }
 
-    static func postCopy(to processIdentifier: pid_t? = nil) {
-        postCommandKey(key: UInt16(kVK_ANSI_C), to: processIdentifier)
+    static func postCopy(to app: NSRunningApplication? = nil) {
+        if shouldUseAppleScript(for: app) {
+            postAppleScriptCommandKey(keyChar: "c")
+        } else {
+            postCommandKey(key: UInt16(kVK_ANSI_C))
+        }
     }
 
-    static func postPaste(to processIdentifier: pid_t? = nil) {
-        postCommandKey(key: UInt16(kVK_ANSI_V), to: processIdentifier)
+    static func postPaste(to app: NSRunningApplication? = nil) {
+        if shouldUseAppleScript(for: app) {
+            postAppleScriptCommandKey(keyChar: "v")
+        } else {
+            postCommandKey(key: UInt16(kVK_ANSI_V))
+        }
     }
 
-    static func postUndo(to processIdentifier: pid_t? = nil) {
-        postCommandKey(key: UInt16(kVK_ANSI_Z), to: processIdentifier)
+    static func postUndo(to app: NSRunningApplication? = nil) {
+        if shouldUseAppleScript(for: app) {
+            postAppleScriptCommandKey(keyChar: "z")
+        } else {
+            postCommandKey(key: UInt16(kVK_ANSI_Z))
+        }
     }
 
-    private static func postCommandKey(key: UInt16, to processIdentifier: pid_t?) {
+    private static func shouldUseAppleScript(for app: NSRunningApplication?) -> Bool {
+        guard let bundleID = app?.bundleIdentifier?.lowercased() else { return false }
+        return bundleID.contains("safari") || bundleID.contains("webkit")
+    }
+
+    private static func postAppleScriptCommandKey(keyChar: String) {
+        let script = """
+        tell application "System Events"
+            keystroke "\(keyChar)" using command down
+        end tell
+        """
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+        }
+    }
+
+    private static func postCommandKey(key: UInt16) {
         // Use HIDSystemState. This is the critical difference for WebKit and VMs.
         // It injects the event at the lowest level of the window server, 
         // completely bypassing session-level virtualization quirks.

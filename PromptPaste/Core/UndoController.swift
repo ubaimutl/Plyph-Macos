@@ -45,7 +45,7 @@ final class UndoController: ObservableObject {
             return PromptError.returnToOriginalApp.localizedDescription
         }
         clear()
-        await TextReplacer.sendUndo()
+        await TextReplacer.sendUndo(to: frontmost)
         return nil
     }
 
