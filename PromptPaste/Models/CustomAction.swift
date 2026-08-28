@@ -49,6 +49,33 @@ struct CustomAction: Codable, Identifiable, Equatable {
         self.outputLimit = max(0, outputLimit)
     }
 
+    /// Useful, editable examples shown on a fresh installation. Stable IDs
+    /// keep these distinguishable from actions users create themselves.
+    static let starterActions: [CustomAction] = [
+        CustomAction(
+            id: "starter-summarize-v1",
+            name: "Summarize",
+            prompt: """
+                Summarize the selected text as a concise paragraph or short bullet list, \
+                whichever is clearer. Preserve key facts, names, numbers, and conclusions. \
+                Add no commentary. Return only the summary.
+                """),
+        CustomAction(
+            id: "starter-translate-v1",
+            name: "Translate",
+            prompt: """
+                Translate the selected text into ${language}. Preserve its meaning, tone, \
+                formatting, names, and technical terms. Return only the translation.
+                """),
+        CustomAction(
+            id: "starter-tone-v1",
+            name: "Adjust tone",
+            prompt: """
+                Rewrite the selected text in a ${tone} tone. Preserve its language, meaning, \
+                facts, and essential formatting. Return only the revised text.
+                """),
+    ]
+
     enum CodingKeys: String, CodingKey {
         case id, name, prompt, enabled, provider, model
         case inputMode

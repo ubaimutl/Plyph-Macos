@@ -62,6 +62,7 @@ jobs:
 
       - name: Build application
         run: |
+          set -o pipefail
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \

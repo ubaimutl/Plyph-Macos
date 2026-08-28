@@ -2,6 +2,16 @@ import XCTest
 @testable import PromptPaste
 
 final class CustomActionTests: XCTestCase {
+    func testStarterActionsAreValidAndUseStableIDs() {
+        XCTAssertEqual(CustomAction.starterActions.count, 3)
+        XCTAssertTrue(CustomAction.starterActions.allSatisfy(\.isValid))
+        XCTAssertEqual(
+            CustomAction.starterActions.map(\.id),
+            ["starter-summarize-v1", "starter-translate-v1", "starter-tone-v1"])
+        XCTAssertTrue(CustomAction.starterActions[1].prompt.contains("${language}"))
+        XCTAssertTrue(CustomAction.starterActions[2].prompt.contains("${tone}"))
+    }
+
     func testDecodeGNOMEShapedJSONWithDefaults() throws {
         // enabled omitted → true, limits invalid → 0, unknown mode → transform
         let json = """

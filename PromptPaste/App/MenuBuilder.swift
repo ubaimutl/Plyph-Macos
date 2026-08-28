@@ -13,7 +13,11 @@ enum ActionSymbol {
     }
 
     static func image(for mode: RunMode) -> NSImage? {
-        NSImage(systemSymbolName: name(for: mode), accessibilityDescription: nil)?
+        image(named: name(for: mode))
+    }
+
+    static func image(named name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
     }
 }
@@ -99,7 +103,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
             keyEquivalent: "")
         undo.target = self
         undo.isEnabled = runner.undoController.pending != nil
-        undo.image = menuSymbol("arrow.uturn.backward")
+        undo.image = ActionSymbol.image(named: "arrow.uturn.backward")
         menu.addItem(undo)
 
         menu.addItem(.separator())

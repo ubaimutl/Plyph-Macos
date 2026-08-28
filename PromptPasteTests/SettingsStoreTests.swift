@@ -25,6 +25,9 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.clipboardFallback, false)
         XCTAssertEqual(store.explicitCopyApps, "firefox")
         XCTAssertEqual(store.excludedApps, "")
+        XCTAssertEqual(
+            store.customActions.map(\.id),
+            CustomAction.starterActions.map(\.id))
         XCTAssertEqual(store.pointerFeedback, true)
         XCTAssertEqual(store.actionPalettePosition, "disabled")
         XCTAssertEqual(store.variableLanguage, "English")
@@ -56,6 +59,16 @@ final class SettingsStoreTests: XCTestCase {
         // A new store over the same defaults reads it back.
         let reloaded = SettingsStore(defaults: defaults)
         XCTAssertEqual(reloaded.customActions, [action])
+    }
+
+    func testExplicitlyEmptyCustomActionsDoNotRestoreStarters() {
+        let suiteName = "SettingsStoreTests-empty-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set("[]", forKey: "custom-actions")
+
+        let store = SettingsStore(defaults: defaults)
+
+        XCTAssertTrue(store.customActions.isEmpty)
     }
 
     func testShortcutPersistence() {

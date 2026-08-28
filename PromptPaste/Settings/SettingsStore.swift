@@ -83,7 +83,7 @@ final class SettingsStore: ObservableObject {
             "prompt-run-model": "",
             "prompt-run-input-limit": 0,
             "prompt-run-output-limit": 0,
-            "custom-actions": "[]",
+            "custom-actions": CustomActionStore.encode(CustomAction.starterActions),
             "model-cache": "{}",
             "preview-results": true,
             "clipboard-fallback": false,
