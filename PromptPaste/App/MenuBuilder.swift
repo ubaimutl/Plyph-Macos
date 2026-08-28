@@ -6,6 +6,7 @@ import AppKit
 @MainActor
 final class MenuBuilder: NSObject, NSMenuDelegate {
     private weak var appDelegate: AppDelegate?
+    private var selectionTargetApp: NSRunningApplication?
     let menu = NSMenu()
 
     init(appDelegate: AppDelegate) {
@@ -15,8 +16,22 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        rememberSelectionTarget()
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
+        // Capture the app that owned the user's selection before a menu action
+        // is dispatched. This prevents PromptPaste itself from becoming the
+        // capture target after interacting with the status menu.
+        rememberSelectionTarget()
         rebuild(menu)
+    }
+
+    private func rememberSelectionTarget() {
+        guard let candidate = NSWorkspace.shared.frontmostApplication else { return }
+        guard candidate.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        selectionTargetApp = candidate
     }
 
     private func rebuild(_ menu: NSMenu) {
@@ -88,7 +103,8 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
 
     @objc private func actionClicked(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? ModeBox else { return }
-        Task { await box.runner.run(mode: box.mode) }
+        let targetApp = selectionTargetApp
+        Task { await box.runner.run(mode: box.mode, targetApp: targetApp) }
     }
 
     @objc private func undoClicked(_ sender: NSMenuItem) {

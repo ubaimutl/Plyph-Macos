@@ -28,13 +28,18 @@ final class ActionRunner: ObservableObject {
 
     // MARK: Entry points
 
-    func run(mode: RunMode) async {
+    func run(mode: RunMode, targetApp: NSRunningApplication? = nil) async {
         guard !isBusy else { return }
+
+        // Capture the target before PromptPaste changes any UI state. Menu
+        // actions can pass the app remembered when the status menu opened;
+        // hotkeys use the current frontmost app.
+        let frontApp = targetApp ?? NSWorkspace.shared.frontmostApplication
+
         isBusy = true
         statusIcons?.showWorking()
         feedback("Working…", error: false, duration: 0)
 
-        let frontApp = NSWorkspace.shared.frontmostApplication
         do {
             let selection = try await SelectionReader.read(settings: settings, frontApp: frontApp)
             let text = selection.text
@@ -103,10 +108,11 @@ final class ActionRunner: ObservableObject {
 
     func openActionPalette() {
         guard !isBusy else { return }
+        let targetApp = NSWorkspace.shared.frontmostApplication
         switch settings.actionPalettePosition {
         case "monitor-center", "near-pointer":
             ActionPaletteController.shared.show(modeHandler: { [weak self] mode in
-                Task { await self?.run(mode: mode) }
+                Task { await self?.run(mode: mode, targetApp: targetApp) }
             })
         default:
             AppDelegate.shared?.statusItemController?.openMenu()
