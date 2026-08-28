@@ -1,9 +1,8 @@
 import AppKit
 
-/// Application entry point. PromptPaste normally lives in the menu bar.
+/// Application delegate. PromptPaste normally lives in the menu bar.
 /// During VM testing we also launch as a regular app and always show Settings
 /// so startup is impossible to miss.
-@main
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
 
