@@ -41,7 +41,9 @@ enum SelectionReader {
         if let frontApp {
             frontApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(frontApp, timeout: 1.5)
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            // Allow the target window (especially a browser web view) to restore
+            // its first responder before sending the copy shortcut.
+            try? await Task.sleep(nanoseconds: 180_000_000)
         } else {
             try? await Task.sleep(nanoseconds: 60_000_000)
         }
@@ -51,9 +53,10 @@ enum SelectionReader {
         ClipboardStore.clear()
         let clearedCount = ClipboardStore.changeCount
 
-        // Send the copy directly to the app that owns the selection instead of
-        // relying on whichever process happens to receive the global event.
-        KeyPoster.postCopy(to: frontApp?.processIdentifier)
+        // Use the normal HID event path after reactivating the target app. In
+        // Safari/Chrome, webpage editors live in separate content processes, so
+        // posting Cmd+C only to the browser's main PID misses the actual editor.
+        KeyPoster.postCopy()
 
         let deadline = Date().addingTimeInterval(1.5)
         while Date() < deadline {
