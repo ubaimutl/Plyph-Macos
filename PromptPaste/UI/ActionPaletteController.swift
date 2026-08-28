@@ -10,7 +10,7 @@ final class ActionPaletteController: NSObject {
     private var panel: ActionPalettePanel?
     private var table: NSTableView?
     private var items: [PaletteItem] = []
-    private var selectedRow = 0
+    private var selectedRow = -1
     private var modeHandler: ((RunMode) -> Void)?
     private var eventMonitor: Any?
 
@@ -33,9 +33,8 @@ final class ActionPaletteController: NSObject {
         buildItems()
         buildPanel()
         positionPanel()
-        selectedRow = 0
-        table?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        table?.scrollRowToVisible(0)
+        selectedRow = -1
+        table?.deselectAll(nil)
         panel?.makeKeyAndOrderFront(nil)
         
         // Start global monitor to capture clicks outside and keyboard navigation 
@@ -70,20 +69,20 @@ final class ActionPaletteController: NSObject {
         let settings = SettingsStore.shared
         items = [
             PaletteItem(
-                name: "Correct selected text", icon: image("text.badge.checkmark"),
+                name: "Correct selected text", icon: ActionSymbol.image(for: .correct),
                 mode: .correct, isSeparator: false),
             PaletteItem(
-                name: "Rewrite selected text", icon: image("square.and.pencil"),
+                name: "Rewrite selected text", icon: ActionSymbol.image(for: .rewrite),
                 mode: .rewrite, isSeparator: false),
             PaletteItem(
-                name: "Run selected prompt", icon: image("gearshape"),
+                name: "Run selected prompt", icon: ActionSymbol.image(for: .prompt),
                 mode: .prompt, isSeparator: false),
         ]
         let actions = settings.enabledCustomActions
         for action in actions {
             items.append(
                 PaletteItem(
-                    name: action.name, icon: image("gearshape"),
+                    name: action.name, icon: ActionSymbol.image(for: .custom(action)),
                     mode: .custom(action), isSeparator: false))
         }
         if !actions.isEmpty {
@@ -93,16 +92,28 @@ final class ActionPaletteController: NSObject {
         }
     }
 
-    private func image(_ symbol: String) -> NSImage? {
-        NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
-    }
-
     // MARK: Panel construction
 
     private func buildPanel() {
+        let rowHeight: CGFloat = 30
+        let separatorHeight: CGFloat = 7
+        let widestTitle = items
+            .filter { !$0.isSeparator }
+            .map {
+                ($0.name as NSString).size(
+                    withAttributes: [.font: NSFont.systemFont(ofSize: 13)]
+                ).width
+            }
+            .max() ?? 160
+        let paletteWidth = min(320, max(230, ceil(widestTitle + 64)))
+        let listHeight = items.reduce(CGFloat.zero) { total, item in
+            total + (item.isSeparator ? separatorHeight : rowHeight)
+        }
+        let maxHeight = (NSScreen.main?.visibleFrame.height ?? 800) * 0.55
+        let paletteHeight = min(listHeight + 12, maxHeight)
+
         let panel = ActionPalettePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
+            contentRect: NSRect(x: 0, y: 0, width: paletteWidth, height: paletteHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -115,36 +126,26 @@ final class ActionPaletteController: NSObject {
         panel.delegate = self
         panel.keyHandler = { [weak self] event in self?.handleKey(event) }
 
-        let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 380, height: 200))
+        let effect = NSVisualEffectView(
+            frame: NSRect(x: 0, y: 0, width: paletteWidth, height: paletteHeight))
         effect.material = .menu
         effect.state = .active
         effect.blendingMode = .behindWindow
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
+        effect.layer?.cornerRadius = 10
         effect.layer?.cornerCurve = .continuous
         effect.layer?.masksToBounds = true
         panel.contentView = effect
 
-        // Header
-        let title = NSTextField(labelWithString: "PromptPaste")
-        title.font = .boldSystemFont(ofSize: 14)
-        title.alignment = .center
-        title.translatesAutoresizingMaskIntoConstraints = false
-
-        let close = NSButton(title: "", target: self, action: #selector(closeClicked))
-        close.isBordered = false
-        close.image = NSImage(
-            systemSymbolName: "xmark.circle", accessibilityDescription: "Close palette")
-        close.translatesAutoresizingMaskIntoConstraints = false
-
         let table = NSTableView()
         table.headerView = nil
-        table.rowHeight = 40
+        table.rowHeight = rowHeight
         table.backgroundColor = .clear
         table.selectionHighlightStyle = .regular
         table.intercellSpacing = NSSize(width: 0, height: 0)
         table.style = .fullWidth
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("action"))
+        column.width = paletteWidth - 12
         table.addTableColumn(column)
         table.dataSource = self
         table.delegate = self
@@ -154,33 +155,19 @@ final class ActionPaletteController: NSObject {
 
         let scroll = NSScrollView()
         scroll.documentView = table
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = listHeight > maxHeight - 12
         scroll.drawsBackground = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
-        effect.addSubview(title)
-        effect.addSubview(close)
         effect.addSubview(scroll)
 
         NSLayoutConstraint.activate([
-            title.topAnchor.constraint(equalTo: effect.topAnchor, constant: 14),
-            title.centerXAnchor.constraint(equalTo: effect.centerXAnchor),
-            close.topAnchor.constraint(equalTo: effect.topAnchor, constant: 8),
-            close.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -8),
-            close.widthAnchor.constraint(equalToConstant: 24),
-            close.heightAnchor.constraint(equalToConstant: 24),
-            scroll.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10),
-            scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 10),
-            scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -10),
-            scroll.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
+            scroll.topAnchor.constraint(equalTo: effect.topAnchor, constant: 6),
+            scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 6),
+            scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -6),
+            scroll.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -6),
         ])
 
-        let listHeight = items.reduce(0) { total, item in
-            total + (item.isSeparator ? 12 : 40)
-        }
-        let maxHeight: CGFloat = (NSScreen.main?.visibleFrame.height ?? 800) * 0.6
-        let height: CGFloat = min(CGFloat(listHeight + 56), maxHeight)
-        panel.setContentSize(NSSize(width: 380, height: max(120, height)))
         self.panel = panel
     }
 
@@ -228,27 +215,28 @@ final class ActionPaletteController: NSObject {
         guard let table else { return }
         let rows = items.enumerated().filter { !$0.element.isSeparator }.map(\.offset)
         guard !rows.isEmpty else { return }
-        let currentIndex = rows.firstIndex(of: selectedRow) ?? 0
-        let nextIndex = (currentIndex + offset + rows.count) % rows.count
+        let nextIndex: Int
+        if let currentIndex = rows.firstIndex(of: selectedRow) {
+            nextIndex = (currentIndex + offset + rows.count) % rows.count
+        } else {
+            nextIndex = offset < 0 ? rows.count - 1 : 0
+        }
         selectedRow = rows[nextIndex]
         table.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
         table.scrollRowToVisible(selectedRow)
     }
 
     private func activateSelection() {
-        guard selectedRow < items.count else { return }
+        guard selectedRow >= 0, selectedRow < items.count else { return }
         let item = items[selectedRow]
+        guard !item.isSeparator else { return }
         close()
         modeHandler?(item.mode)
     }
 
-    @objc private func closeClicked() {
-        close()
-    }
-
     @objc private func rowClicked() {
         let clicked = table?.clickedRow ?? -1
-        guard clicked >= 0 else { return }
+        guard clicked >= 0, clicked < items.count, !items[clicked].isSeparator else { return }
         selectedRow = clicked
         activateSelection()
     }
@@ -262,7 +250,7 @@ extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        items[row].isSeparator ? 12 : 40
+        items[row].isSeparator ? 7 : 30
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int)
@@ -276,14 +264,15 @@ extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
         }
         let container = NSStackView()
         container.orientation = .horizontal
-        container.spacing = 10
+        container.spacing = 8
         container.alignment = .centerY
-        container.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        container.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         if let icon = item.icon {
             let imageView = NSImageView(image: icon)
             imageView.contentTintColor = .secondaryLabelColor
             imageView.translatesAutoresizingMaskIntoConstraints = false
-            imageView.widthAnchor.constraint(equalToConstant: 18).isActive = true
+            imageView.widthAnchor.constraint(equalToConstant: 15).isActive = true
+            imageView.heightAnchor.constraint(equalToConstant: 15).isActive = true
             container.addArrangedSubview(imageView)
         }
         let label = NSTextField(labelWithString: item.name)

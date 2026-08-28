@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="PromptPaste logo">
-  <rect width="1024" height="1024" fill="#050607"/>
+  <!-- macOS app-icon silhouette: transparent optical margin and rounded corners. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#050607"/>
   <path d="M 512 156
       C 496 257 458 365 401 455
       C 349 537 286 607 220 660

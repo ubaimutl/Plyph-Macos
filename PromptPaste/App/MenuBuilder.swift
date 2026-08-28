@@ -1,5 +1,23 @@
 import AppKit
 
+/// One source of truth for action symbols used by both the menu-bar menu and
+/// the compact floating action palette.
+enum ActionSymbol {
+    static func name(for mode: RunMode) -> String {
+        switch mode {
+        case .correct: return "wand.and.stars"
+        case .rewrite: return "square.and.pencil"
+        case .prompt: return "play.fill"
+        case .custom: return "sparkles"
+        }
+    }
+
+    static func image(for mode: RunMode) -> NSImage? {
+        NSImage(systemSymbolName: name(for: mode), accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+    }
+}
+
 /// Builds the status item menu: the three built-in actions, the enabled custom
 /// actions, the time-windowed Undo item, settings and quit. Rebuilt every time
 /// the menu opens so new/changed custom actions appear immediately.
@@ -53,15 +71,15 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         }
 
         let correctItem = actionItem("Correct selected text", .correct, runner)
-        correctItem.image = menuSymbol("wand.and.stars")
+        correctItem.image = ActionSymbol.image(for: .correct)
         menu.addItem(correctItem)
 
         let rewriteItem = actionItem("Rewrite selected text", .rewrite, runner)
-        rewriteItem.image = menuSymbol("square.and.pencil")
+        rewriteItem.image = ActionSymbol.image(for: .rewrite)
         menu.addItem(rewriteItem)
 
         let promptItem = actionItem("Run selected prompt", .prompt, runner)
-        promptItem.image = menuSymbol("play.fill")
+        promptItem.image = ActionSymbol.image(for: .prompt)
         menu.addItem(promptItem)
 
         let enabled = settings.enabledCustomActions
@@ -69,7 +87,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
             for action in enabled {
                 let item = actionItem(action.name, .custom(action), runner)
-                item.image = menuSymbol("sparkles")
+                item.image = ActionSymbol.image(for: .custom(action))
                 menu.addItem(item)
             }
         }
@@ -110,12 +128,6 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         item.isEnabled = true
         item.representedObject = ModeBox(mode: mode, runner: runner)
         return item
-    }
-
-    /// Creates a template SF Symbol image at menu-item icon size (16pt).
-    private func menuSymbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
     }
 
     @objc private func actionClicked(_ sender: NSMenuItem) {
