@@ -175,6 +175,54 @@ enum AXMenuAction {
                 }
             }
         }
+    static func isCopyEnabled(in app: NSRunningApplication) -> Bool {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var menuBarRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+              let menuBarRef else { return false }
+        let menuBar = unsafeBitCast(menuBarRef, to: AXUIElement.self)
+
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            menuBar, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let menus = childrenRef as? [AXUIElement] else { return false }
+
+        for menu in menus {
+            if searchAndCheckCopyEnabled(in: menu) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func searchAndCheckCopyEnabled(in element: AXUIElement) -> Bool {
+        var titleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRef) == .success,
+           let title = titleRef as? String {
+            let lower = title.lowercased()
+            // Match standard localized "Copy" commands
+            if lower.hasPrefix("copy") || lower.hasPrefix("kopieren") || lower.hasPrefix("copier") ||
+               lower.hasPrefix("copiar") || lower.hasPrefix("copia") || lower.hasPrefix("拷") || lower.hasPrefix("复") {
+                
+                var enabledRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabledRef) == .success,
+                   let enabled = enabledRef as? Bool {
+                    return enabled
+                }
+                return false
+            }
+        }
+
+        var childrenRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+           let children = childrenRef as? [AXUIElement] {
+            for child in children {
+                if searchAndCheckCopyEnabled(in: child) {
+                    return true
+                }
+            }
+        }
         return false
     }
 }

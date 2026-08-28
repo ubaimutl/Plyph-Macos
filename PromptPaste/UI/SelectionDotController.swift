@@ -110,27 +110,38 @@ final class SelectionDotController: NSObject {
             element = AXElement.focusedElement()
         }
 
-        guard let targetElement = element else {
+        var hasSelection = false
+        var targetElement = element
+
+        // 1. Try to read the text directly via Accessibility
+        if let targetElement {
+            var textRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                targetElement, kAXSelectedTextAttribute as CFString, &textRef) == .success,
+               let str = textRef as? String,
+               !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hasSelection = true
+            }
+        }
+
+        // 2. If AX text read failed (Chrome, Electron, some WebKit elements), check if Edit > Copy is enabled!
+        if !hasSelection {
+            if AXMenuAction.isCopyEnabled(in: frontApp) {
+                hasSelection = true
+            }
+        }
+
+        guard hasSelection else {
             hideDot()
             return
         }
 
-        var textRef: CFTypeRef?
-        var selectedText: String?
-        if AXUIElementCopyAttributeValue(
-            targetElement, kAXSelectedTextAttribute as CFString, &textRef) == .success,
-           let str = textRef as? String {
-            selectedText = str
+        let pos: NSPoint
+        if let targetElement, let pt = selectionEndPoint(element: targetElement) {
+            pos = pt
+        } else {
+            pos = nearMouse()
         }
-
-        guard let selected = selectedText,
-              !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            hideDot()
-            return
-        }
-
-        let pos = selectionEndPoint(element: targetElement) ?? nearMouse()
         showDot(at: pos)
     }
 
