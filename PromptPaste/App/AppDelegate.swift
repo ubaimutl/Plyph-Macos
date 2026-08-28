@@ -19,12 +19,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.shared = self
         guard !Self.isRunningTests else { return }
 
-        // Menu bar item.
-        runner = ActionRunner()
+        // Keep PromptPaste as a menu-bar utility, but make the status item
+        // explicitly visible so first launch cannot appear to do nothing.
+        NSApp.setActivationPolicy(.accessory)
+
         let statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength)
+        statusItem.isVisible = true
+
         let controller = StatusItemController(statusItem: statusItem)
         statusItemController = controller
+
+        // Pass the status controller into the runner so working/success state
+        // changes actually reach the menu-bar item.
+        runner = ActionRunner(statusIcons: controller)
 
         let builder = MenuBuilder(appDelegate: self)
         menuBuilder = builder
@@ -54,6 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ask for Accessibility permission on first launch; without it the app
         // cannot read selections or replace text.
         AXAccess.promptIfNeeded()
+
+        // Show Settings once for a newly installed build so users immediately
+        // see that the application launched and can configure a provider.
+        let firstLaunchKey = "did-show-initial-settings-v1"
+        if !UserDefaults.standard.bool(forKey: firstLaunchKey) {
+            UserDefaults.standard.set(true, forKey: firstLaunchKey)
+            DispatchQueue.main.async {
+                SettingsWindowController.shared.show()
+            }
+        }
     }
 
     private var shortcutObserver: NSObjectProtocol?
