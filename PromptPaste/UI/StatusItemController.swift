@@ -7,23 +7,47 @@ final class StatusItemController {
     let item: NSStatusItem
 
     private var resetTask: Task<Void, Never>?
+    private static let menuIconSize = NSSize(width: 18, height: 18)
 
-    /// The canonical PromptPaste symbolic mark from the GNOME project. Marking
-    /// it as a template lets macOS tint it correctly for light/dark menu bars.
+    /// The canonical PromptPaste symbolic mark from the GNOME project. The SVG
+    /// has a large intrinsic canvas, so force it to menu-bar dimensions before
+    /// assigning it to NSStatusBarButton.
     private let defaultIcon: NSImage? = {
-        let image = NSImage(named: "MenuBarIcon")
-        image?.isTemplate = true
+        guard let source = NSImage(named: "MenuBarIcon") else { return nil }
+        let image = source.copy() as? NSImage ?? source
+        image.size = menuIconSize
+        image.isTemplate = true
         return image
     }()
 
-    private let workingIcon = NSImage(systemSymbolName: "hourglass",
-                                      accessibilityDescription: "Working")
-    private let successIcon = NSImage(systemSymbolName: "checkmark.circle.fill",
-                                      accessibilityDescription: "Done")
+    private let workingIcon: NSImage? = {
+        guard let image = NSImage(systemSymbolName: "hourglass",
+                                  accessibilityDescription: "Working") else {
+            return nil
+        }
+        image.size = menuIconSize
+        image.isTemplate = true
+        return image
+    }()
+
+    private let successIcon: NSImage? = {
+        guard let image = NSImage(systemSymbolName: "checkmark.circle.fill",
+                                  accessibilityDescription: "Done") else {
+            return nil
+        }
+        image.size = menuIconSize
+        image.isTemplate = true
+        return image
+    }()
 
     init(statusItem: NSStatusItem) {
         self.item = statusItem
         self.item.isVisible = true
+        if let button = self.item.button {
+            button.imageScaling = .scaleProportionallyDown
+            button.imagePosition = .imageOnly
+            button.toolTip = "PromptPaste"
+        }
         restoreDefault()
     }
 
@@ -31,24 +55,12 @@ final class StatusItemController {
 
     func showWorking() {
         cancelReset()
-        if let workingIcon {
-            workingIcon.isTemplate = true
-            button?.image = workingIcon
-            button?.title = ""
-        } else {
-            useTextFallback()
-        }
+        setIcon(workingIcon)
     }
 
     func showSuccess() {
         cancelReset()
-        if let successIcon {
-            successIcon.isTemplate = true
-            button?.image = successIcon
-            button?.title = ""
-        } else {
-            useTextFallback()
-        }
+        setIcon(successIcon)
         resetTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard let self, !Task.isCancelled else { return }
@@ -58,12 +70,7 @@ final class StatusItemController {
 
     func restoreDefault() {
         cancelReset()
-        if let defaultIcon {
-            button?.image = defaultIcon
-            button?.title = ""
-        } else {
-            useTextFallback()
-        }
+        setIcon(defaultIcon)
         button?.toolTip = "PromptPaste"
     }
 
@@ -72,9 +79,23 @@ final class StatusItemController {
         button?.performClick(nil)
     }
 
+    private func setIcon(_ image: NSImage?) {
+        if let image {
+            button?.image = image
+            button?.title = ""
+            button?.imagePosition = .imageOnly
+        } else {
+            useTextFallback()
+        }
+    }
+
+    /// Never allow the app to become completely invisible if an asset fails to
+    /// load on a particular macOS build.
     private func useTextFallback() {
         button?.image = nil
-        button?.title = "PP"
+        button?.imagePosition = .noImage
+        button?.title = "P"
+        button?.font = .systemFont(ofSize: 13, weight: .semibold)
     }
 
     private func cancelReset() {
