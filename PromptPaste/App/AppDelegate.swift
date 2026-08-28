@@ -21,6 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // as Settings temporarily switch the app to .regular while visible.
         NSApp.setActivationPolicy(.accessory)
 
+        // Reuse the canonical PromptPaste artwork instead of the generated
+        // placeholder icon from the original macOS port. This is the image the
+        // Dock shows whenever a regular PromptPaste window is open.
+        if let appIcon = NSImage(named: "AppBrandIcon") {
+            NSApp.applicationIconImage = appIcon
+        }
+
         let statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength)
         statusItem.isVisible = true
