@@ -9,6 +9,7 @@ PromptPaste is a menu-bar utility that applies AI actions to text selected in an
 - `${selection}`, `${language}`, `${tone}`, and `${style}` prompt variables.
 - Preview before replacement, copy-result support, automatic replacement, and a time-limited undo action.
 - Native floating action palette and menu-bar status item.
+- PopClip-style selection button with per-application exclusions.
 - Configurable global shortcuts.
 - Accessibility selection access with clipboard-copy fallback.
 - Clipboard preservation/restoration during fallback capture and replacement where macOS permits it.
@@ -60,7 +61,7 @@ Credentials are never written to UserDefaults or project files. API keys and tok
 
 ## Configuration
 
-Settings include the default provider and model, provider-specific configuration, credential management, enabled and ordered custom actions, action prompt/input mode, provider/model overrides, preview behavior, clipboard fallback behavior, input/output token limits, prompt variables, and shortcut recording.
+Settings include the default provider and model, provider-specific configuration, credential management, enabled and ordered custom actions, action prompt/input mode, provider/model overrides, preview behavior, clipboard fallback behavior, floating-button app exclusions, input/output token limits, prompt variables, and shortcut recording.
 
 Normal preferences are stored using macOS preferences (`UserDefaults`). Secrets use Keychain Services. Removing a credential from Settings deletes that Keychain item.
 

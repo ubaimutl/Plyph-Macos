@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// General tab: active provider, shortcuts, and behavior settings.
 struct GeneralSettingsView: View {
@@ -14,6 +15,7 @@ struct GeneralSettingsView: View {
                 }
                 shortcutsGroup
                 behaviorGroup
+                excludedAppsGroup
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
@@ -135,8 +137,7 @@ struct GeneralSettingsView: View {
                 Toggle("Show action button near selected text", isOn: $settings.selectionDotEnabled)
                 Text(
                     "A small floating button appears beside your selection. "
-                        + "Click it to open the action list. Requires Accessibility permission. "
-                        + "Position falls back to cursor on web page content (macOS AX limitation).")
+                        + "Click it to open the action list. Requires Accessibility permission.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Divider()
@@ -149,6 +150,113 @@ struct GeneralSettingsView: View {
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
         }
+    }
+
+    private var excludedAppsGroup: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Excluded apps").font(.headline)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("The selection button will never appear in these apps.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if settings.excludedAppIdentifierList.isEmpty {
+                    Text("No apps excluded")
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(settings.excludedAppIdentifierList, id: \.self) { identifier in
+                            ExcludedAppRow(bundleIdentifier: identifier) {
+                                settings.includeApp(bundleIdentifier: identifier)
+                            }
+                            if identifier != settings.excludedAppIdentifierList.last {
+                                Divider().padding(.leading, 34)
+                            }
+                        }
+                    }
+                }
+
+                HStack {
+                    Button {
+                        chooseApplicationsToExclude()
+                    } label: {
+                        Label("Add Application…", systemImage: "plus")
+                    }
+                    Spacer()
+                }
+            }
+            .padding(16)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+        }
+    }
+
+    private func chooseApplicationsToExclude() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Applications to Exclude"
+        panel.prompt = "Exclude"
+        panel.message = "PromptPaste will not show its selection button in the selected apps."
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.begin { response in
+            guard response == .OK else { return }
+            for url in panel.urls {
+                if let identifier = Bundle(url: url)?.bundleIdentifier {
+                    settings.excludeApp(bundleIdentifier: identifier)
+                }
+            }
+        }
+    }
+}
+
+private struct ExcludedAppRow: View {
+    let bundleIdentifier: String
+    let remove: () -> Void
+
+    private var applicationURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+    }
+
+    private var displayName: String {
+        guard let url = applicationURL else { return bundleIdentifier }
+        return (Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? url.deletingPathExtension().lastPathComponent
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Group {
+                if let url = applicationURL {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: "app.dashed")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName)
+                Text(bundleIdentifier)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button(action: remove) {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove from excluded apps")
+        }
+        .padding(.vertical, 5)
     }
 }
 

@@ -4,14 +4,16 @@ import ApplicationServices
 /// Floating action indicator: a small non-activating panel that appears near the
 /// user's selection and, when clicked, opens the action palette.
 ///
-/// Implements the exact selection detection and positioning architecture used by PopClip:
+/// Uses the same user-facing rules as PopClip without depending on clipboard state:
 /// 1. Monitors mouse-up events systemwide via global and local event monitors.
 /// 2. Suppresses popup when Command (⌘) modifier key is held during selection.
 /// 3. Detects and immediately suppresses for secure/password fields and excluded apps.
-/// 4. Discovers selection via focused element and point-hit element fallback.
-/// 5. Calculates precise screen bounds via standard Cocoa AX ranges and WebKit/Chromium Text Markers.
-/// 6. Dismisses immediately upon keyboard typing (keyDown), scrolling (scrollWheel), or outside clicks.
-/// 7. Uses `.nonactivatingPanel` so key focus is never stolen from the active application.
+/// 4. Discovers selection via focused, point-hit, and ancestor AX elements.
+/// 5. Requires a non-empty native range or verified WebKit/Chromium text-marker string.
+/// 6. Anchors to the selection endpoint when AX exposes it and otherwise to the
+///    mouse-up point that completed the selection.
+/// 7. Dismisses immediately upon keyboard typing (keyDown), scrolling (scrollWheel), or outside clicks.
+/// 8. Uses `.nonactivatingPanel` so key focus is never stolen from the active application.
 @MainActor
 final class SelectionDotController: NSObject {
 
@@ -23,6 +25,7 @@ final class SelectionDotController: NSObject {
     private var debounceTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
     private var onActivate: (() -> Void)?
+    private var mouseDownLocation: NSPoint?
 
     private var globalMouseUpMonitor: Any?
     private var localMouseUpMonitor: Any?
@@ -30,16 +33,16 @@ final class SelectionDotController: NSObject {
     private var localDismissMonitor: Any?
     private var workspaceObservers: [NSObjectProtocol] = []
 
-    // MARK: - Excluded Apps & System Identifiers (PopClip rules)
-    private static let excludedBundleIdentifiers: Set<String> = [
+    // Apps where automatic selection UI is unsafe regardless of user settings.
+    private static let protectedBundleIdentifiers: Set<String> = [
         "com.apple.loginwindow",
-        "com.apple.ScreenSaver.Engine",
-        "com.apple.SystemUIServer",
+        "com.apple.screensaver.engine",
+        "com.apple.systemuiserver",
         "com.1password.1password",
         "com.1password.7",
         "com.bitwarden.desktop",
         "org.keepassxc.keepassxc",
-        "com.lastpass.LastPass"
+        "com.lastpass.lastpass"
     ]
 
     // MARK: - Public
@@ -74,8 +77,15 @@ final class SelectionDotController: NSObject {
                 return
             }
             let loc = NSEvent.mouseLocation
+            let clickCount = event.clickCount
             Task { @MainActor in
-                self.scheduleCheck(mouseLocation: loc)
+                let dragged = self.mouseDownLocation.map {
+                    self.distanceSquared(from: $0, to: loc) >= 9
+                } ?? false
+                self.mouseDownLocation = nil
+                self.scheduleCheck(
+                    mouseLocation: loc,
+                    selectionGesture: dragged || clickCount >= 2)
             }
         }
 
@@ -88,8 +98,15 @@ final class SelectionDotController: NSObject {
                 return event
             }
             let loc = NSEvent.mouseLocation
+            let clickCount = event.clickCount
             Task { @MainActor in
-                self.scheduleCheck(mouseLocation: loc)
+                let dragged = self.mouseDownLocation.map {
+                    self.distanceSquared(from: $0, to: loc) >= 9
+                } ?? false
+                self.mouseDownLocation = nil
+                self.scheduleCheck(
+                    mouseLocation: loc,
+                    selectionGesture: dragged || clickCount >= 2)
             }
             return event
         }
@@ -98,7 +115,12 @@ final class SelectionDotController: NSObject {
         let dismissMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel]
 
         globalDismissMonitor = NSEvent.addGlobalMonitorForEvents(matching: dismissMask) { [weak self] event in
-            guard let self, let panel = self.panel, panel.isVisible else { return }
+            guard let self else { return }
+            if event.type == .leftMouseDown {
+                let location = NSEvent.mouseLocation
+                Task { @MainActor in self.mouseDownLocation = location }
+            }
+            guard let panel = self.panel, panel.isVisible else { return }
             if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
                 let mouseLoc = NSEvent.mouseLocation
                 if panel.frame.contains(mouseLoc) {
@@ -109,7 +131,12 @@ final class SelectionDotController: NSObject {
         }
 
         localDismissMonitor = NSEvent.addLocalMonitorForEvents(matching: dismissMask) { [weak self] event in
-            guard let self, let panel = self.panel, panel.isVisible else { return event }
+            guard let self else { return event }
+            if event.type == .leftMouseDown {
+                let location = NSEvent.mouseLocation
+                Task { @MainActor in self.mouseDownLocation = location }
+            }
+            guard let panel = self.panel, panel.isVisible else { return event }
             if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
                 let mouseLoc = NSEvent.mouseLocation
                 if panel.frame.contains(mouseLoc) {
@@ -162,30 +189,35 @@ final class SelectionDotController: NSObject {
         workspaceObservers.removeAll()
     }
 
-    private func scheduleCheck(mouseLocation: NSPoint) {
+    private func scheduleCheck(mouseLocation: NSPoint, selectionGesture: Bool) {
         debounceTask?.cancel()
         debounceTask = Task { [weak self] in
             guard let self else { return }
             // 180 ms debounce gives the target application time to commit the selection range
             try? await Task.sleep(nanoseconds: 180_000_000)
             guard !Task.isCancelled else { return }
-            self.evaluateCurrentSelection(mouseLocation: mouseLocation)
+            self.evaluateCurrentSelection(
+                mouseLocation: mouseLocation,
+                selectionGesture: selectionGesture)
         }
     }
 
     // MARK: - Selection Evaluation & Suppression Rules
 
-    private func evaluateCurrentSelection(mouseLocation: NSPoint) {
+    private func evaluateCurrentSelection(
+        mouseLocation: NSPoint,
+        selectionGesture: Bool
+    ) {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else { return }
         if frontApp.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
 
         // Exclusion Rule 1: Excluded system / password manager apps
         if let bundleID = frontApp.bundleIdentifier {
-            if Self.excludedBundleIdentifiers.contains(bundleID) {
+            if Self.protectedBundleIdentifiers.contains(bundleID.lowercased()) {
                 hideDot()
                 return
             }
-            if SettingsStore.shared.explicitCopyAppList.contains(bundleID.lowercased()) {
+            if SettingsStore.shared.isAppExcluded(bundleIdentifier: bundleID) {
                 hideDot()
                 return
             }
@@ -208,12 +240,14 @@ final class SelectionDotController: NSObject {
         // Element Discovery: Stage 2 - Element at mouse position (fallback for WebAreas / complex trees)
         var hitElement: AXUIElement?
         let systemWide = AXUIElementCreateSystemWide()
-        let primaryScreenHeight = NSScreen.screens.first?.frame.height ?? 0
-        let carbonY = primaryScreenHeight - mouseLocation.y
-        _ = AXUIElementCopyElementAtPosition(systemWide, Float(mouseLocation.x), Float(carbonY), &hitElement)
+        let mainDisplayHeight = CGDisplayBounds(CGMainDisplayID()).height
+        let axY = mainDisplayHeight - mouseLocation.y
+        _ = AXUIElementCopyElementAtPosition(
+            systemWide, Float(mouseLocation.x), Float(axY), &hitElement)
 
-        // Target element candidate list to inspect
-        let candidates = [element, hitElement].compactMap { $0 }
+        // Web content commonly exposes the selection on an ancestor WebArea
+        // rather than the leaf returned by hit-testing.
+        let candidates = selectionCandidates(focused: element, hit: hitElement)
 
         // Exclusion Rule 2: Password / Secure Text Fields (PopClip Security Rule)
         for candidate in candidates {
@@ -224,55 +258,108 @@ final class SelectionDotController: NSObject {
         }
 
         // Selection Verification across candidates
-        var hasSelection = false
         var selectedElement: AXUIElement?
 
         for candidate in candidates {
-            var textRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(
-                candidate, kAXSelectedTextAttribute as CFString, &textRef) == .success,
-               let str = textRef as? String,
-               !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                hasSelection = true
-                selectedElement = candidate
-                break
-            }
-
-            // WebKit text marker check
-            var markerRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(
-                candidate, "AXSelectedTextMarkerRange" as CFString, &markerRef) == .success,
-               markerRef != nil {
-                hasSelection = true
+            if hasNonEmptySelection(in: candidate) {
                 selectedElement = candidate
                 break
             }
         }
 
-        // Fallback check: Edit > Copy enabled in menu (Chromium/Electron/WebViews with inaccessible text)
-        if !hasSelection {
-            if AXMenuAction.isCopyEnabled(in: frontApp) {
-                hasSelection = true
-                selectedElement = element ?? hitElement
-            }
-        }
-
-        guard hasSelection else {
+        guard let selectedElement else {
             hideDot()
             return
         }
 
-        // Calculate Position
-        let pos: NSPoint
-        if let target = selectedElement, let pt = selectionEndPoint(element: target, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
-            pos = pt
-        } else if let el = element, let pt = selectionEndPoint(element: el, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
-            pos = pt
-        } else {
-            pos = NSPoint(x: mouseLocation.x + 12, y: mouseLocation.y + 4)
+        // A selection may stay active while the user clicks a toolbar, image,
+        // or other control. Do not resurrect the button for that stale range.
+        // A nearby AX range proves that this mouse-up belongs to the selection;
+        // drag and multi-click gestures cover apps that expose text but no bounds.
+        let proximity = selectionProximity(
+            to: mouseLocation,
+            in: selectedElement,
+            mainDisplayHeight: mainDisplayHeight)
+        guard proximity == true || (proximity == nil && selectionGesture) else {
+            hideDot()
+            return
         }
 
-        showDot(at: pos)
+        let anchor = selectionAnchor(
+            element: selectedElement,
+            mainDisplayHeight: mainDisplayHeight,
+            mouseLocation: mouseLocation) ?? mouseLocation
+        showDot(near: anchor, on: screen(containing: mouseLocation))
+    }
+
+    private func selectionCandidates(
+        focused: AXUIElement?, hit: AXUIElement?
+    ) -> [AXUIElement] {
+        var result: [AXUIElement] = []
+
+        for root in [focused, hit].compactMap({ $0 }) {
+            var current: AXUIElement? = root
+            var depth = 0
+            while let candidate = current, depth < 8 {
+                if !result.contains(where: { CFEqual($0, candidate) }) {
+                    result.append(candidate)
+                }
+
+                var parentRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(
+                    candidate, kAXParentAttribute as CFString, &parentRef) == .success,
+                   let parentRef {
+                    current = unsafeBitCast(parentRef, to: AXUIElement.self)
+                } else {
+                    current = nil
+                }
+                depth += 1
+            }
+        }
+        return result
+    }
+
+    private func hasNonEmptySelection(in element: AXUIElement) -> Bool {
+        var textRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextAttribute as CFString, &textRef) == .success,
+           let text = textRef as? String,
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+           let rangeRef,
+           let range = cfRange(from: rangeRef), range.length > 0 {
+            return true
+        }
+
+        // A text-marker range object can represent only a caret. Asking the AX
+        // provider for the range's string distinguishes that from real selected
+        // text and avoids the old random-popup false positive.
+        var markerRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, "AXSelectedTextMarkerRange" as CFString, &markerRef) == .success,
+              let markerRef else { return false }
+
+        var markerTextRef: CFTypeRef?
+        if AXUIElementCopyParameterizedAttributeValue(
+            element, "AXStringForTextMarkerRange" as CFString,
+            markerRef, &markerTextRef) == .success,
+           let text = markerTextRef as? String {
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var attributedRef: CFTypeRef?
+        if AXUIElementCopyParameterizedAttributeValue(
+            element, "AXAttributedStringForTextMarkerRange" as CFString,
+            markerRef, &attributedRef) == .success,
+           let text = attributedRef as? NSAttributedString {
+            return !text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return false
     }
 
     // MARK: - Security / Password Detection
@@ -295,32 +382,88 @@ final class SelectionDotController: NSObject {
         return false
     }
 
-    // MARK: - Systemwide Selection Geometry (PopClip Method)
+    // MARK: - Systemwide Selection Geometry
 
-    private func selectionEndPoint(element: AXUIElement, primaryScreenHeight: CGFloat, mouseLocation: NSPoint) -> NSPoint? {
-        // 1. Cocoa Standard Range Bounds (NSTextView, TextEdit, Pages, Xcode, Notes, Cocoa controls)
-        // Native Cocoa text ranges are 100% authoritative and pixel-perfect.
+    /// Returns nil when the application exposes selected text but no selection
+    /// geometry. That is different from false, which means AX gave us bounds
+    /// and they prove the click occurred elsewhere.
+    private func selectionProximity(
+        to point: NSPoint,
+        in element: AXUIElement,
+        mainDisplayHeight: CGFloat
+    ) -> Bool? {
         var rangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
-           let rangeRef {
-            var boundsRef: CFTypeRef?
-            if AXUIElementCopyParameterizedAttributeValue(
-                element,
-                kAXBoundsForRangeParameterizedAttribute as CFString,
-                rangeRef, &boundsRef) == .success,
-               let boundsRef {
-                var rect = CGRect.zero
-                if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if rect.width > 0 && rect.height > 0 && rect.height <= 300 {
-                        let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
-                        return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
-                    }
-                }
+           let rangeRef,
+           let rect = boundsForAXValue(
+                rangeRef,
+                parameterizedAttribute: kAXBoundsForRangeParameterizedAttribute as CFString,
+                in: element,
+                mainDisplayHeight: mainDisplayHeight) {
+            return rect.insetBy(dx: -60, dy: -45).contains(point)
+        }
+
+        var markerRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            element, "AXSelectedTextMarkerRange" as CFString, &markerRef) == .success,
+           let markerRef,
+           let rect = boundsForAXValue(
+                markerRef,
+                parameterizedAttribute: "AXBoundsForTextMarkerRange" as CFString,
+                in: element,
+                mainDisplayHeight: mainDisplayHeight) {
+            return rect.insetBy(dx: -60, dy: -45).contains(point)
+        }
+        return nil
+    }
+
+    private func boundsForAXValue(
+        _ value: CFTypeRef,
+        parameterizedAttribute: CFString,
+        in element: AXUIElement,
+        mainDisplayHeight: CGFloat
+    ) -> CGRect? {
+        var boundsRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, parameterizedAttribute, value, &boundsRef) == .success,
+              let boundsRef, let axRect = cgRect(from: boundsRef),
+              axRect.width > 0, axRect.height > 0 else { return nil }
+        return appKitRect(from: axRect, mainDisplayHeight: mainDisplayHeight)
+    }
+
+    private func selectionAnchor(
+        element: AXUIElement,
+        mainDisplayHeight: CGFloat,
+        mouseLocation: NSPoint
+    ) -> NSPoint? {
+        // Native Cocoa: ask for the first and last selected glyph rather than
+        // the union of a multi-line selection. Pick the endpoint nearest the
+        // mouse-up position so reverse selections are handled correctly.
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+           let rangeRef,
+           let selectedRange = cfRange(from: rangeRef), selectedRange.length > 0 {
+            let first = CFRange(location: selectedRange.location, length: 1)
+            let last = CFRange(
+                location: selectedRange.location + selectedRange.length - 1,
+                length: 1)
+            let rects = [first, last].compactMap {
+                boundsForRange($0, in: element, mainDisplayHeight: mainDisplayHeight)
+            }
+            if let closest = rects.min(by: {
+                distanceSquared(from: $0.center, to: mouseLocation)
+                    < distanceSquared(from: $1.center, to: mouseLocation)
+            }) {
+                return closest.center
             }
         }
 
-        // 2. WebKit / Chromium Text Marker Range Bounds (Safari, Chrome, Arc, Brave, Electron, VS Code, Slack, Discord)
+        // WebKit/Chromium usually return the union of every selected line.
+        // Use it only when it describes a compact selection near the release
+        // point; for multi-line/container bounds the mouse-up point is the
+        // reliable active endpoint.
         var markerRangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success,
@@ -331,18 +474,15 @@ final class SelectionDotController: NSObject {
                 "AXBoundsForTextMarkerRange" as CFString,
                 markerRangeRef, &boundsRef) == .success,
                let boundsRef {
-                var rect = CGRect.zero
-                if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if rect.width > 0 && rect.height > 0 && rect.height <= 300 {
-                        let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
-                        // If Chromium returns the full block/paragraph container width (e.g. onlinenotepad.io),
-                        // or if maxX is far from the mouse release point, anchor to the mouse position.
-                        if rect.width > 400 || abs(rect.maxX - mouseLocation.x) > 100 {
-                            let y = abs((cocoaY + rect.height / 2) - mouseLocation.y) < 50 ? (cocoaY + rect.height / 2) : mouseLocation.y
-                            return NSPoint(x: mouseLocation.x + 8, y: y)
-                        } else {
-                            return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
-                        }
+                if let axRect = cgRect(from: boundsRef) {
+                    let rect = appKitRect(from: axRect, mainDisplayHeight: mainDisplayHeight)
+                    let compact = rect.width > 0 && rect.height > 0
+                        && rect.width <= 320 && rect.height <= 80
+                    let closeToRelease = rect.insetBy(dx: -50, dy: -40).contains(mouseLocation)
+                    if compact && closeToRelease {
+                        return NSPoint(
+                            x: min(max(mouseLocation.x, rect.minX), rect.maxX),
+                            y: min(max(mouseLocation.y, rect.minY), rect.maxY))
                     }
                 }
             }
@@ -351,24 +491,82 @@ final class SelectionDotController: NSObject {
         return nil
     }
 
+    private func boundsForRange(
+        _ range: CFRange,
+        in element: AXUIElement,
+        mainDisplayHeight: CGFloat
+    ) -> CGRect? {
+        var mutableRange = range
+        guard let rangeValue = AXValueCreate(.cfRange, &mutableRange) else { return nil }
+        var boundsRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXBoundsForRangeParameterizedAttribute as CFString,
+            rangeValue, &boundsRef) == .success,
+              let boundsRef, let axRect = cgRect(from: boundsRef),
+              axRect.width > 0, axRect.height > 0, axRect.height < 200 else { return nil }
+        return appKitRect(from: axRect, mainDisplayHeight: mainDisplayHeight)
+    }
+
+    private func cfRange(from value: CFTypeRef) -> CFRange? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange(location: 0, length: 0)
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
+        return range
+    }
+
+    private func cgRect(from value: CFTypeRef) -> CGRect? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetValue(axValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    private func appKitRect(from rect: CGRect, mainDisplayHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: rect.minX,
+            y: mainDisplayHeight - rect.maxY,
+            width: rect.width,
+            height: rect.height)
+    }
+
+    private func distanceSquared(from lhs: NSPoint, to rhs: NSPoint) -> CGFloat {
+        let dx = lhs.x - rhs.x
+        let dy = lhs.y - rhs.y
+        return dx * dx + dy * dy
+    }
+
+    private func screen(containing point: NSPoint) -> NSScreen? {
+        if let exact = NSScreen.screens.first(where: { $0.frame.contains(point) }) {
+            return exact
+        }
+        return NSScreen.screens.min {
+            distanceSquared(from: $0.frame.center, to: point)
+                < distanceSquared(from: $1.frame.center, to: point)
+        }
+    }
+
     // MARK: - Dot Panel UI & Clamping
 
-    private func showDot(at pt: NSPoint) {
+    private func showDot(near anchor: NSPoint, on screen: NSScreen?) {
         hideTask?.cancel()
         hideTask = nil
         if panel == nil { buildPanel() }
         guard let panel else { return }
 
         let sz = panel.frame.size
-        var origin = NSPoint(x: pt.x, y: pt.y - sz.height / 2)
+        let gap: CGFloat = 8
+        let visible = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        var origin = NSPoint(x: anchor.x - sz.width / 2, y: anchor.y + gap)
 
-        // Find the target screen containing the point and clamp within its visible frame
-        for scr in NSScreen.screens where scr.frame.contains(pt) {
-            let vis = scr.visibleFrame
-            origin.x = max(vis.minX + 6, min(origin.x, vis.maxX - sz.width - 6))
-            origin.y = max(vis.minY + 6, min(origin.y, vis.maxY - sz.height - 6))
-            break
+        // PopClip-style placement prefers above the active selection endpoint,
+        // then flips below when the menu bar or screen edge leaves no room.
+        if origin.y + sz.height > visible.maxY - 6 {
+            origin.y = anchor.y - gap - sz.height
         }
+        origin.x = max(visible.minX + 6, min(origin.x, visible.maxX - sz.width - 6))
+        origin.y = max(visible.minY + 6, min(origin.y, visible.maxY - sz.height - 6))
         panel.setFrameOrigin(origin)
 
         if !panel.isVisible {
@@ -483,4 +681,8 @@ private final class DotButtonView: NSView {
             logo.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
         }
     }
+}
+
+private extension CGRect {
+    var center: CGPoint { CGPoint(x: midX, y: midY) }
 }

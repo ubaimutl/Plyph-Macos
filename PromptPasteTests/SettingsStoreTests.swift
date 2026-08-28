@@ -24,6 +24,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.previewResults, true)
         XCTAssertEqual(store.clipboardFallback, false)
         XCTAssertEqual(store.explicitCopyApps, "firefox")
+        XCTAssertEqual(store.excludedApps, "")
         XCTAssertEqual(store.pointerFeedback, true)
         XCTAssertEqual(store.actionPalettePosition, "disabled")
         XCTAssertEqual(store.variableLanguage, "English")
@@ -76,6 +77,25 @@ final class SettingsStoreTests: XCTestCase {
             ["firefox", "org.mozilla.firefox", "vscode"])
         store.explicitCopyApps = ""
         XCTAssertEqual(store.explicitCopyAppList, [])
+    }
+
+    func testExcludedAppsAreIndependentAndPersisted() {
+        let (store, defaults) = makeStore()
+        store.excludeApp(bundleIdentifier: " COM.APPLE.SAFARI ")
+        store.excludeApp(bundleIdentifier: "com.google.Chrome")
+        store.excludeApp(bundleIdentifier: "com.apple.safari")
+
+        XCTAssertEqual(
+            store.excludedAppIdentifierList,
+            ["com.apple.safari", "com.google.chrome"])
+        XCTAssertTrue(store.isAppExcluded(bundleIdentifier: "com.apple.Safari"))
+        XCTAssertFalse(store.isAppExcluded(bundleIdentifier: "org.mozilla.firefox"))
+
+        store.includeApp(bundleIdentifier: "COM.APPLE.SAFARI")
+        XCTAssertEqual(store.excludedAppIdentifierList, ["com.google.chrome"])
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.excludedAppIdentifierList, ["com.google.chrome"])
     }
 
     func testEnabledCustomActionsFilter() {

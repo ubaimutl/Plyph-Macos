@@ -35,6 +35,7 @@ final class SettingsStore: ObservableObject {
         previewResults = defaults.bool(forKey: "preview-results")
         clipboardFallback = defaults.bool(forKey: "clipboard-fallback")
         explicitCopyApps = defaults.string(forKey: "explicit-copy-apps") ?? ""
+        excludedApps = defaults.string(forKey: "excluded-apps") ?? ""
         pointerFeedback = defaults.bool(forKey: "pointer-feedback")
         selectionDotEnabled = defaults.bool(forKey: "selection-dot-enabled")
         actionPalettePosition = defaults.string(forKey: "action-palette-position") ?? "disabled"
@@ -87,6 +88,7 @@ final class SettingsStore: ObservableObject {
             "preview-results": true,
             "clipboard-fallback": false,
             "explicit-copy-apps": "firefox",
+            "excluded-apps": "",
             "pointer-feedback": true,
             "selection-dot-enabled": false,
             "enable-debug-logging": false,
@@ -230,6 +232,13 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(explicitCopyApps, forKey: "explicit-copy-apps") }
     }
 
+    /// Bundle identifiers where automatic selection UI must never appear.
+    /// Stored as a newline-delimited string so the preference remains easy to
+    /// inspect and migrate without coupling it to a Codable representation.
+    @Published var excludedApps: String {
+        didSet { defaults.set(excludedApps, forKey: "excluded-apps") }
+    }
+
     @Published var pointerFeedback: Bool {
         didSet { defaults.set(pointerFeedback, forKey: "pointer-feedback") }
     }
@@ -295,5 +304,39 @@ final class SettingsStore: ObservableObject {
             .split(whereSeparator: { $0 == "\n" || $0 == "," })
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
             .filter { !$0.isEmpty }
+    }
+
+    var excludedAppIdentifierList: [String] {
+        Self.parseAppIdentifiers(excludedApps)
+    }
+
+    func isAppExcluded(bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return Set(excludedAppIdentifierList).contains(bundleIdentifier.lowercased())
+    }
+
+    func excludeApp(bundleIdentifier: String) {
+        let identifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !identifier.isEmpty else { return }
+        var identifiers = excludedAppIdentifierList
+        guard !identifiers.contains(identifier) else { return }
+        identifiers.append(identifier)
+        excludedApps = identifiers.joined(separator: "\n")
+    }
+
+    func includeApp(bundleIdentifier: String) {
+        let identifier = bundleIdentifier.lowercased()
+        excludedApps = excludedAppIdentifierList
+            .filter { $0 != identifier }
+            .joined(separator: "\n")
+    }
+
+    private static func parseAppIdentifiers(_ value: String) -> [String] {
+        var seen = Set<String>()
+        return value
+            .split(whereSeparator: { $0 == "\n" || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 }
