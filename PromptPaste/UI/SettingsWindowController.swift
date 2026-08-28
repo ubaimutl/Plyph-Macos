@@ -18,9 +18,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if window == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                styleMask: [.titled, .closable, .miniaturizable, .resizable,
+                            .unifiedTitleAndToolbar],
                 backing: .buffered, defer: false)
-            window.title = "PromptPaste Settings"
+            window.title = "PromptPaste"
+            window.subtitle = "Settings"
+            window.titlebarAppearsTransparent = false
+            window.toolbarStyle = .unified
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.center()
@@ -64,6 +68,7 @@ struct SettingsRootView: View {
                 .tabItem { Label("Prompts", systemImage: "doc.text") }
         }
         .frame(minWidth: 740, minHeight: 540)
-        .padding()
+        // No extra outer padding — the window chrome and tab view provide
+        // appropriate insets for a native macOS preferences window.
     }
 }

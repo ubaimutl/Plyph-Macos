@@ -30,51 +30,25 @@ final class PreviewController: NSObject, NSWindowDelegate {
 
         let panel = PreviewPanel(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 380),
-            styleMask: [.borderless, .nonactivatingPanel, .resizable],
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel,
+                        .unifiedTitleAndToolbar],
             backing: .buffered, defer: false)
-        panel.minSize = NSSize(width: 580, height: 320)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
+        panel.title = "Preview Result"
+        panel.minSize = NSSize(width: 560, height: 300)
+        panel.isOpaque = true
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        panel.titlebarAppearsTransparent = false
+        panel.toolbarStyle = .unified
         panel.delegate = self
 
-        let effect = NSVisualEffectView(
-            frame: NSRect(x: 0, y: 0, width: 700, height: 380))
-        effect.material = .windowBackground
-        effect.state = .active
-        effect.blendingMode = .behindWindow
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.cornerCurve = .continuous
-        effect.layer?.masksToBounds = true
+        // Content area inside the titled panel chrome.
+        let content = NSView()
+        content.autoresizingMask = [.width, .height]
 
-        let header = NSStackView()
-        header.orientation = .horizontal
-        header.spacing = 8
-        header.alignment = .centerY
-
-        let title = NSTextField(labelWithString: "Result")
-        title.font = .boldSystemFont(ofSize: 15)
-
-        let wrap = NSButton(title: "Wrap", target: self, action: #selector(toggleWrap))
-        wrap.setButtonType(.pushOnPushOff)
-        wrap.bezelStyle = .rounded
-        wrap.state = .on
-
-        let expand = NSButton(title: "", target: self, action: #selector(toggleExpand))
-        expand.isBordered = false
-        expand.image = NSImage(
-            systemSymbolName: "arrow.up.left.and.arrow.down.right",
-            accessibilityDescription: "Expand preview")
-
-        header.addArrangedSubview(title)
-        header.addArrangedSubview(wrap)
-        header.addArrangedSubview(expand)
-        header.translatesAutoresizingMaskIntoConstraints = false
-
+        // Wrap text in a scroll view
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
@@ -91,56 +65,95 @@ final class PreviewController: NSObject, NSWindowDelegate {
         text.textContainer?.widthTracksTextView = true
         text.autoresizingMask = [.width]
         text.drawsBackground = false
+        text.textContainerInset = NSSize(width: 4, height: 8)
         scroll.documentView = text
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         self.textView = text
+
+        // Wrap toggle button
+        let wrap = NSButton(title: "Wrap", target: self, action: #selector(toggleWrap))
+        wrap.setButtonType(.pushOnPushOff)
+        wrap.bezelStyle = .rounded
+        wrap.controlSize = .small
+        wrap.state = .on
         self.wrapButton = wrap
+
+        // Expand toggle
+        let expand = NSButton(title: "", target: self, action: #selector(toggleExpand))
+        expand.isBordered = false
+        expand.imageScaling = .scaleProportionallyDown
+        expand.image = NSImage(
+            systemSymbolName: "arrow.up.left.and.arrow.down.right",
+            accessibilityDescription: "Expand preview")
         self.expandButton = expand
 
-        let buttons = NSStackView()
+        // Right-aligned accessory controls in a stack
+        let accessory = NSStackView(views: [wrap, expand])
+        accessory.orientation = .horizontal
+        accessory.spacing = 8
+        accessory.alignment = .centerY
+
+        // Accessory toolbar: placed in a thin bar below the title bar
+        let accessoryBar = NSView()
+        accessoryBar.translatesAutoresizingMaskIntoConstraints = false
+        accessory.translatesAutoresizingMaskIntoConstraints = false
+        accessoryBar.addSubview(accessory)
+        NSLayoutConstraint.activate([
+            accessory.trailingAnchor.constraint(equalTo: accessoryBar.trailingAnchor, constant: -16),
+            accessory.centerYAnchor.constraint(equalTo: accessoryBar.centerYAnchor),
+            accessoryBar.heightAnchor.constraint(equalToConstant: 30),
+        ])
+
+        // Bottom action buttons
+        let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
+        cancelBtn.bezelStyle = .rounded
+        cancelBtn.keyEquivalent = "\u{1b}"
+
+        let copyBtn = NSButton(title: "Copy", target: self, action: #selector(copyClicked))
+        copyBtn.bezelStyle = .rounded
+
+        let replaceBtn = NSButton(title: "Replace", target: self, action: #selector(replaceClicked))
+        replaceBtn.bezelStyle = .rounded
+        replaceBtn.keyEquivalent = "\r"
+
+        let buttons = NSStackView(views: [cancelBtn, copyBtn, replaceBtn])
         buttons.orientation = .horizontal
         buttons.spacing = 10
-
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
-        cancel.bezelStyle = .rounded
-        cancel.keyEquivalent = "\u{1b}"
-
-        let copy = NSButton(title: "Copy", target: self, action: #selector(copyClicked))
-        copy.bezelStyle = .rounded
-
-        let replace = NSButton(title: "Replace", target: self, action: #selector(replaceClicked))
-        replace.bezelStyle = .rounded
-        replace.keyEquivalent = "\r"
-
-        buttons.addArrangedSubview(cancel)
-        buttons.addArrangedSubview(copy)
-        buttons.addArrangedSubview(replace)
         buttons.setHuggingPriority(.defaultHigh, for: .horizontal)
         buttons.translatesAutoresizingMaskIntoConstraints = false
 
-        effect.addSubview(header)
-        effect.addSubview(scroll)
-        effect.addSubview(buttons)
-        panel.contentView = effect
+        // Separator above buttons
+        let sep = NSBox()
+        sep.boxType = .separator
+        sep.translatesAutoresizingMaskIntoConstraints = false
+
+        content.addSubview(accessoryBar)
+        content.addSubview(scroll)
+        content.addSubview(sep)
+        content.addSubview(buttons)
+        panel.contentView = content
 
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: effect.topAnchor, constant: 16),
-            header.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
-            header.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+            accessoryBar.topAnchor.constraint(equalTo: content.topAnchor),
+            accessoryBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            accessoryBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
 
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
-            scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
-            scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
-            scroll.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -14),
+            scroll.topAnchor.constraint(equalTo: accessoryBar.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 2),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -2),
+            scroll.bottomAnchor.constraint(equalTo: sep.topAnchor),
 
-            buttons.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -16),
-            buttons.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+            sep.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            sep.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            sep.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -10),
+
+            buttons.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
+            buttons.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -18),
         ])
 
         panel.onEscape = { [weak self] in self?.cancelClicked() }
         panel.onActionReturn = { [weak self] in self?.replaceClicked() }
-
         self.panel = panel
 
         let screen = NSScreen.main ?? NSScreen.screens.first
@@ -151,8 +164,6 @@ final class PreviewController: NSObject, NSWindowDelegate {
                 total + max(1, Int(ceil(Double(line.count) / 80.0)))
             }
 
-        // Never collapse short results into a tiny strip. Start as a useful
-        // editor-sized window and grow moderately for longer output.
         let width = min(760, max(640, visible.width * 0.55))
         let contentDrivenHeight = CGFloat(estimatedLines) * 21 + 150
         let height = min(max(340, visible.height * 0.52), max(340, contentDrivenHeight))

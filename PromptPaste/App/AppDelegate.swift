@@ -64,10 +64,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             _ = AXAccess.promptIfNeeded()
+            // Start the optional selection dot if the setting is already on.
+            self.applySelectionDotSetting()
+        }
+    }
+
+    func applySelectionDotSetting() {
+        if SettingsStore.shared.selectionDotEnabled {
+            SelectionDotController.shared.start { [weak self] in
+                self?.runner?.openActionPalette()
+            }
+        } else {
+            SelectionDotController.shared.stop()
         }
     }
 
     private var shortcutObserver: NSObjectProtocol?
+    private var selectionDotObserver: NSObjectProtocol?
+
     private func observeShortcutChanges() {
         guard shortcutObserver == nil else { return }
         shortcutObserver = NotificationCenter.default.addObserver(
@@ -81,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard let self, !Task.isCancelled else { return }
                 HotkeyManager.shared.refresh()
+                self.applySelectionDotSetting()
                 self.hotkeyManagerRefreshDebounce = nil
             }
         }

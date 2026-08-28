@@ -41,6 +41,36 @@ enum AXElement {
         return unsafeBitCast(raw, to: AXUIElement.self)
     }
 
+    /// Polls the target app's focused element until it is non-nil, indicating
+    /// that the app (including any sandboxed content subprocess, e.g. WebKit's
+    /// WebContent) has restored its first responder after being activated.
+    ///
+    /// Browsers and Electron apps restore focus asynchronously after their main
+    /// process is activated; a fixed sleep is fragile across machine speeds and
+    /// page complexity. This replaces every fixed-delay wait with an event-driven
+    /// poll so events are posted as early as possible while never missing slower
+    /// systems.
+    ///
+    /// - Parameters:
+    ///   - app: The target `NSRunningApplication`.
+    ///   - timeout: Maximum seconds to wait (default 1.5 s).
+    static func waitFocusRestored(
+        in app: NSRunningApplication,
+        timeout: TimeInterval = 1.5
+    ) async {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            var value: CFTypeRef?
+            let err = AXUIElementCopyAttributeValue(
+                appElement, kAXFocusedUIElementAttribute as CFString, &value)
+            if err == .success, value != nil {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)  // 20 ms
+        }
+    }
+
     static func selectedText(of element: AXUIElement) -> String? {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(

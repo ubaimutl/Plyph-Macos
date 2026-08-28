@@ -52,15 +52,25 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        menu.addItem(actionItem("Correct selected text", .correct, runner))
-        menu.addItem(actionItem("Rewrite selected text", .rewrite, runner))
-        menu.addItem(actionItem("Run selected prompt", .prompt, runner))
+        let correctItem = actionItem("Correct selected text", .correct, runner)
+        correctItem.image = menuSymbol("text.badge.checkmark")
+        menu.addItem(correctItem)
+
+        let rewriteItem = actionItem("Rewrite selected text", .rewrite, runner)
+        rewriteItem.image = menuSymbol("square.and.pencil")
+        menu.addItem(rewriteItem)
+
+        let promptItem = actionItem("Run selected prompt", .prompt, runner)
+        promptItem.image = menuSymbol("gearshape")
+        menu.addItem(promptItem)
 
         let enabled = settings.enabledCustomActions
         if !enabled.isEmpty {
             menu.addItem(.separator())
             for action in enabled {
-                menu.addItem(actionItem(action.name, .custom(action), runner))
+                let item = actionItem(action.name, .custom(action), runner)
+                item.image = menuSymbol("sparkles")
+                menu.addItem(item)
             }
         }
 
@@ -71,6 +81,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
             keyEquivalent: "")
         undo.target = self
         undo.isEnabled = runner.undoController.pending != nil
+        undo.image = menuSymbol("arrow.uturn.backward")
         menu.addItem(undo)
 
         menu.addItem(.separator())
@@ -99,6 +110,12 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         item.isEnabled = true
         item.representedObject = ModeBox(mode: mode, runner: runner)
         return item
+    }
+
+    /// Creates a template SF Symbol image at menu-item icon size (16pt).
+    private func menuSymbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
     }
 
     @objc private func actionClicked(_ sender: NSMenuItem) {

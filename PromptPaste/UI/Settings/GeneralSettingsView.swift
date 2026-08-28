@@ -123,6 +123,14 @@ struct GeneralSettingsView: View {
                 Text("Show progress, success, and errors where you are working.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                Divider()
+                Toggle("Show action button near selected text", isOn: $settings.selectionDotEnabled)
+                Text(
+                    "A small floating button appears beside your selection. "
+                        + "Click it to open the action list. Requires Accessibility permission. "
+                        + "Position falls back to cursor on web page content (macOS AX limitation).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             .padding(4)
         } label: {

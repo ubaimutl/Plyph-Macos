@@ -138,11 +138,11 @@ final class FeedbackHUD: NSObject {
 
         let effect = NSVisualEffectView(frame: panel.contentView?.bounds ?? .zero)
         effect.autoresizingMask = [.width, .height]
-        effect.material = .hudWindow
+        effect.material = .popover
         effect.state = .active
         effect.blendingMode = .behindWindow
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 10
+        effect.layer?.cornerRadius = 12
         effect.layer?.cornerCurve = .continuous
         effect.layer?.masksToBounds = true
         effect.layer?.borderWidth = 0.5
@@ -172,7 +172,7 @@ final class FeedbackHUD: NSObject {
     private func startFollowingPointer() {
         guard followTimer == nil else { return }
         let timer = Timer(
-            timeInterval: 1.0 / 30.0,
+            timeInterval: 1.0 / 60.0,
             target: self,
             selector: #selector(followPointerTick),
             userInfo: nil,

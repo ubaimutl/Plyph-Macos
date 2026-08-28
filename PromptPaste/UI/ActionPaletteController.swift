@@ -2,18 +2,16 @@ import AppKit
 
 /// The floating action palette: a lightweight, non-activating panel with
 /// keyboard navigation (Up/Down/Enter/Escape), positioned at the screen center
-/// or near the pointer depending on the `action-palette-position` setting —
-/// the closest macOS equivalent of the GNOME ActionPalette dialog.
+/// or near the pointer depending on the `action-palette-position` setting.
 @MainActor
 final class ActionPaletteController: NSObject {
     static let shared = ActionPaletteController()
 
-    private var panel: NSPanel?
+    private var panel: ActionPalettePanel?
     private var table: NSTableView?
     private var items: [PaletteItem] = []
     private var selectedRow = 0
     private var modeHandler: ((RunMode) -> Void)?
-    private var keyboardView: PaletteKeyboardView?
 
     struct PaletteItem {
         let name: String
@@ -38,7 +36,6 @@ final class ActionPaletteController: NSObject {
         table?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         table?.scrollRowToVisible(0)
         panel?.makeKeyAndOrderFront(nil)
-        keyboardView?.window?.makeFirstResponder(keyboardView)
     }
 
     func close() {
@@ -48,7 +45,7 @@ final class ActionPaletteController: NSObject {
         panel.close()
     }
 
-    // MARK: Items (GNOME parity: built-ins, separator, enabled custom actions)
+    // MARK: Items (built-ins, separator, enabled custom actions)
 
     private func buildItems() {
         let settings = SettingsStore.shared
@@ -72,22 +69,20 @@ final class ActionPaletteController: NSObject {
         }
         if !actions.isEmpty {
             items.insert(
-                PaletteItem(
-                    name: "", icon: nil, mode: .correct, isSeparator: true),
+                PaletteItem(name: "", icon: nil, mode: .correct, isSeparator: true),
                 at: 3)
         }
     }
 
     private func image(_ symbol: String) -> NSImage? {
-        NSImage(
-            systemSymbolName: symbol, accessibilityDescription: nil)?
+        NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
     }
 
     // MARK: Panel construction
 
     private func buildPanel() {
-        let panel = NSPanel(
+        let panel = ActionPalettePanel(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
@@ -99,6 +94,7 @@ final class ActionPaletteController: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
         panel.delegate = self
+        panel.keyHandler = { [weak self] event in self?.handleKey(event) }
 
         let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 380, height: 200))
         effect.material = .menu
@@ -114,6 +110,8 @@ final class ActionPaletteController: NSObject {
         let title = NSTextField(labelWithString: "PromptPaste")
         title.font = .boldSystemFont(ofSize: 14)
         title.alignment = .center
+        title.translatesAutoresizingMaskIntoConstraints = false
+
         let close = NSButton(title: "", target: self, action: #selector(closeClicked))
         close.isBordered = false
         close.image = NSImage(
@@ -122,7 +120,7 @@ final class ActionPaletteController: NSObject {
 
         let table = NSTableView()
         table.headerView = nil
-        table.rowHeight = 36
+        table.rowHeight = 40
         table.backgroundColor = .clear
         table.selectionHighlightStyle = .regular
         table.intercellSpacing = NSSize(width: 0, height: 0)
@@ -145,14 +143,6 @@ final class ActionPaletteController: NSObject {
         effect.addSubview(close)
         effect.addSubview(scroll)
 
-        let keyboard = PaletteKeyboardView(frame: .zero)
-        keyboard.onKeyDown = { [weak self] event in
-            self?.handleKey(event)
-        }
-        self.keyboardView = keyboard
-        keyboard.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(keyboard)
-
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: effect.topAnchor, constant: 14),
             title.centerXAnchor.constraint(equalTo: effect.centerXAnchor),
@@ -164,14 +154,10 @@ final class ActionPaletteController: NSObject {
             scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 10),
             scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -10),
             scroll.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
-            keyboard.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            keyboard.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            keyboard.topAnchor.constraint(equalTo: effect.topAnchor),
-            keyboard.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
 
         let listHeight = items.reduce(0) { total, item in
-            total + (item.isSeparator ? 12 : 36)
+            total + (item.isSeparator ? 12 : 40)
         }
         let maxHeight: CGFloat = (NSScreen.main?.visibleFrame.height ?? 800) * 0.6
         let height: CGFloat = min(CGFloat(listHeight + 56), maxHeight)
@@ -182,8 +168,7 @@ final class ActionPaletteController: NSObject {
     private func positionPanel() {
         guard let panel else { return }
         let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
-            ?? NSScreen.main
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         guard let screen else { return }
 
         if SettingsStore.shared.actionPalettePosition == "monitor-center" {
@@ -193,7 +178,6 @@ final class ActionPaletteController: NSObject {
                 y: visible.midY - panel.frame.height / 2)
             panel.setFrameOrigin(origin)
         } else {
-            // Near pointer: like a context menu, clamped to the screen.
             var x = mouse.x + 8
             var y = mouse.y - panel.frame.height - 8
             x = min(max(x, screen.visibleFrame.minX),
@@ -206,7 +190,7 @@ final class ActionPaletteController: NSObject {
 
     // MARK: Interaction
 
-    private func handleKey(_ event: NSEvent) {
+    func handleKey(_ event: NSEvent) {
         switch Int(event.keyCode) {
         case 126:  // Up
             moveSelection(-1)
@@ -259,7 +243,7 @@ extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        items[row].isSeparator ? 12 : 36
+        items[row].isSeparator ? 12 : 40
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int)
@@ -275,7 +259,7 @@ extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
         container.orientation = .horizontal
         container.spacing = 10
         container.alignment = .centerY
-        container.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        container.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
         if let icon = item.icon {
             let imageView = NSImageView(image: icon)
             imageView.contentTintColor = .secondaryLabelColor
@@ -284,6 +268,7 @@ extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
             container.addArrangedSubview(imageView)
         }
         let label = NSTextField(labelWithString: item.name)
+        label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
         container.addArrangedSubview(label)
         return container
@@ -302,20 +287,17 @@ extension ActionPaletteController: NSWindowDelegate {
     }
 }
 
-// MARK: - Keyboard view
+// MARK: - Panel subclass
 
-/// Invisible view that accepts first responder inside the palette panel and
-/// forwards key events to the controller.
-final class PaletteKeyboardView: NSView {
-    var onKeyDown: ((NSEvent) -> Void)?
+/// NSPanel subclass that can become key and forwards key events to the
+/// controller via a callback — replacing the invisible PaletteKeyboardView
+/// approach with the simpler, standard NSResponder pattern.
+final class ActionPalettePanel: NSPanel {
+    var keyHandler: ((NSEvent) -> Void)?
 
-    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKey: Bool { true }
 
     override func keyDown(with event: NSEvent) {
-        onKeyDown?(event)
-    }
-
-    override func viewDidMoveToWindow() {
-        window?.makeFirstResponder(self)
+        keyHandler?(event)
     }
 }

@@ -36,6 +36,7 @@ final class SettingsStore: ObservableObject {
         clipboardFallback = defaults.bool(forKey: "clipboard-fallback")
         explicitCopyApps = defaults.string(forKey: "explicit-copy-apps") ?? ""
         pointerFeedback = defaults.bool(forKey: "pointer-feedback")
+        selectionDotEnabled = defaults.bool(forKey: "selection-dot-enabled")
         actionPalettePosition = defaults.string(forKey: "action-palette-position") ?? "disabled"
         variableLanguage = defaults.string(forKey: "variable-language") ?? ""
         variableTone = defaults.string(forKey: "variable-tone") ?? ""
@@ -86,6 +87,7 @@ final class SettingsStore: ObservableObject {
             "clipboard-fallback": false,
             "explicit-copy-apps": "firefox",
             "pointer-feedback": true,
+            "selection-dot-enabled": false,
             "action-palette-position": "disabled",
             "variable-language": "English",
             "variable-tone": "professional",
@@ -228,6 +230,10 @@ final class SettingsStore: ObservableObject {
 
     @Published var pointerFeedback: Bool {
         didSet { defaults.set(pointerFeedback, forKey: "pointer-feedback") }
+    }
+
+    @Published var selectionDotEnabled: Bool {
+        didSet { defaults.set(selectionDotEnabled, forKey: "selection-dot-enabled") }
     }
 
     /// "disabled" | "monitor-center" | "near-pointer"

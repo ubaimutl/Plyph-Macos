@@ -20,9 +20,10 @@ enum TextReplacer {
         if let targetApp {
             targetApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(targetApp, timeout: 1.5)
-            // Give the target window enough time to restore its first responder.
-            // WebKit content views can take a little longer than native fields.
-            try? await Task.sleep(nanoseconds: 180_000_000)
+            // Wait until the target app (including its sandboxed WebContent or
+            // renderer process) has restored its first responder. A fixed sleep
+            // is fragile; AX polling returns as soon as focus is ready.
+            await AXElement.waitFocusRestored(in: targetApp, timeout: 1.0)
         }
 
         guard await KeyPoster.waitModifiersReleased() else {
@@ -52,10 +53,14 @@ enum TextReplacer {
         // the actual focused page editor, regardless of which helper PID owns it.
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
-        try? await Task.sleep(nanoseconds: 60_000_000)
+        // Yield briefly to ensure the pasteboard write is committed and visible
+        // to other processes before the key event is injected.
+        try? await Task.sleep(nanoseconds: 20_000_000)
         KeyPoster.postPaste()
 
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        // Allow extra time for the content process to paste and update the
+        // pasteboard change count. 750 ms covers slow Electron and WebKit pages.
+        try? await Task.sleep(nanoseconds: 750_000_000)
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }

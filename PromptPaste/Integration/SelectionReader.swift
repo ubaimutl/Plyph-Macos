@@ -41,9 +41,11 @@ enum SelectionReader {
         if let frontApp {
             frontApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(frontApp, timeout: 1.5)
-            // Allow the target window (especially a browser web view) to restore
-            // its first responder before sending the copy shortcut.
-            try? await Task.sleep(nanoseconds: 180_000_000)
+            // Wait until the target app (including its sandboxed content process
+            // — e.g. Safari's WebContent or Chrome's renderer) has actually
+            // restored its first responder. A fixed sleep fails on slower
+            // machines or complex pages; AX polling returns as early as possible.
+            await AXElement.waitFocusRestored(in: frontApp, timeout: 1.0)
         } else {
             try? await Task.sleep(nanoseconds: 60_000_000)
         }
@@ -58,7 +60,9 @@ enum SelectionReader {
         // posting Cmd+C only to the browser's main PID misses the actual editor.
         KeyPoster.postCopy()
 
-        let deadline = Date().addingTimeInterval(1.5)
+        // Allow up to 2 s for the content process to respond; complex pages and
+        // Electron apps can be slower than native fields.
+        let deadline = Date().addingTimeInterval(2.0)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 30_000_000)
             if ClipboardStore.changeCount != clearedCount {
