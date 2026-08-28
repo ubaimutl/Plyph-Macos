@@ -4,10 +4,10 @@ import Foundation
 
 /// Replaces the original selection in the target app.
 ///
-/// Native AppKit controls are replaced through Accessibility. Safari is routed
-/// directly through clipboard + System Events because WebKit can report a
-/// successful AXSelectedText write without actually changing webpage content.
-/// The detailed debug trace is written to ~/Library/Logs/PromptPaste/debug.log.
+/// Native AppKit controls are replaced through Accessibility. Browser/web
+/// content is routed through clipboard + System Events because browser AX
+/// bridges can report successful AXSelectedText writes without changing the DOM.
+/// Detailed diagnostics are written to ~/Library/Logs/PromptPaste/debug.log.
 enum TextReplacer {
     @discardableResult
     static func replace(
@@ -17,10 +17,11 @@ enum TextReplacer {
         sourceElement: AXUIElement?
     ) async throws -> Bool {
         let debugSession = PromptPasteDebug.newSession()
-        let safariLike = isSafariLike(targetApp)
+        let browserLike = isBrowserLike(targetApp)
+        let sourceInWebArea = sourceElement.map(isInsideWebArea) ?? false
 
         PromptPasteDebug.log(
-            "REPLACE BEGIN outputLen=\(text.count) safariLike=\(safariLike) axTrusted=\(AXAccess.isTrusted) target={\(PromptPasteDebug.appSummary(targetApp))} frontmost={\(PromptPasteDebug.frontmostSummary())} source={\(PromptPasteDebug.elementSummary(sourceElement))} snapshot=\(snapshot != nil)",
+            "REPLACE BEGIN outputLen=\(text.count) browserLike=\(browserLike) sourceInWebArea=\(sourceInWebArea) axTrusted=\(AXAccess.isTrusted) target={\(PromptPasteDebug.appSummary(targetApp))} frontmost={\(PromptPasteDebug.frontmostSummary())} source={\(PromptPasteDebug.elementSummary(sourceElement))} snapshot=\(snapshot != nil)",
             session: debugSession)
 
         if let targetApp {
@@ -33,7 +34,10 @@ enum TextReplacer {
                 "Activation wait finished; frontmost={\(PromptPasteDebug.frontmostSummary())}",
                 session: debugSession)
 
-            if !safariLike {
+            // Do not force browser/web-content window focus through AX. The
+            // webpage editor owns its responder state and System Events only
+            // needs the target application to remain frontmost.
+            if !browserLike && !sourceInWebArea {
                 let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
                 var mainWindowRef: CFTypeRef?
                 if AXUIElementCopyAttributeValue(
@@ -53,72 +57,35 @@ enum TextReplacer {
                 }
             }
 
-            try? await Task.sleep(nanoseconds: safariLike ? 120_000_000 : 200_000_000)
+            try? await Task.sleep(
+                nanoseconds: (browserLike || sourceInWebArea) ? 120_000_000 : 200_000_000)
         }
 
         let modifiersReleased = await KeyPoster.waitModifiersReleased()
+        let currentFocused = AXElement.focusedElement()
+        let focusedInWebArea = currentFocused.map(isInsideWebArea) ?? false
+        let webContent = browserLike || sourceInWebArea || focusedInWebArea
+
         PromptPasteDebug.log(
-            "Modifiers released=\(modifiersReleased) frontmost={\(PromptPasteDebug.frontmostSummary())} currentFocused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))}",
+            "Modifiers released=\(modifiersReleased) webContent=\(webContent) focusedInWebArea=\(focusedInWebArea) frontmost={\(PromptPasteDebug.frontmostSummary())} currentFocused={\(PromptPasteDebug.elementSummary(currentFocused))}",
             session: debugSession)
         guard modifiersReleased else {
             PromptPasteDebug.log("REPLACE ABORT releaseShortcutKeys", session: debugSession)
             throw PromptError.releaseShortcutKeys
         }
 
-        // Safari must bypass direct AX writes entirely. The debug build proved
-        // that WebKit's AXTextArea reports selectedTextSettable=true and
-        // AXUIElementSetAttributeValue returns success while the DOM remains
-        // unchanged. Using that return code caused PromptPaste to exit before
-        // reaching the paste path that is known to work on the same page.
-        if safariLike {
-            let beforeWriteCount = ClipboardStore.changeCount
-            let beforeWriteLength = ClipboardStore.currentString().count
-            PromptPasteDebug.log(
-                "Safari DIRECT paste path BEGIN clipboardCount=\(beforeWriteCount) clipboardStringLen=\(beforeWriteLength) frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))}",
-                session: debugSession)
-
-            ClipboardStore.write(text)
-            let writtenCount = ClipboardStore.changeCount
-            let writtenLength = ClipboardStore.currentString().count
-            PromptPasteDebug.log(
-                "Safari clipboard WRITE requestedLen=\(text.count) resultingLen=\(writtenLength) countBefore=\(beforeWriteCount) countAfter=\(writtenCount)",
-                session: debugSession)
-
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            PromptPasteDebug.log(
-                "Safari BEFORE System Events paste frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))} clipboardCount=\(ClipboardStore.changeCount) clipboardLen=\(ClipboardStore.currentString().count)",
-                session: debugSession)
-
-            let dispatched = KeyPoster.postPaste(
-                to: targetApp,
+        // Browsers and AXWebArea descendants must bypass direct AX writes and
+        // AXTextOperation. Safari and Chrome both proved that those APIs can
+        // report success while leaving the webpage unchanged.
+        if webContent {
+            return await pasteWebContent(
+                text,
+                snapshot: snapshot,
+                targetApp: targetApp,
                 debugSession: debugSession)
-            PromptPasteDebug.log(
-                "Safari System Events dispatch returned=\(dispatched)",
-                session: debugSession)
-
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            PromptPasteDebug.log(
-                "Safari AFTER paste frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))} clipboardCount=\(ClipboardStore.changeCount) clipboardLen=\(ClipboardStore.currentString().count)",
-                session: debugSession)
-
-            if snapshot != nil && ClipboardStore.changeCount == writtenCount {
-                ClipboardStore.restore(snapshot)
-                PromptPasteDebug.log(
-                    "Safari clipboard restored original snapshot",
-                    session: debugSession)
-            } else {
-                PromptPasteDebug.log(
-                    "Safari clipboard NOT restored snapshotExists=\(snapshot != nil) writtenCount=\(writtenCount) currentCount=\(ClipboardStore.changeCount)",
-                    session: debugSession)
-            }
-
-            PromptPasteDebug.log(
-                "REPLACE END Safari direct paste dispatched=\(dispatched)",
-                session: debugSession)
-            return true
         }
 
-        // Tier 1: direct AX replacement for native AppKit controls.
+        // Tier 1: direct AX replacement for actual native AppKit controls.
         if let sourceElement {
             let settable = AXElement.selectedTextSettable(sourceElement)
             PromptPasteDebug.log(
@@ -139,7 +106,6 @@ enum TextReplacer {
             PromptPasteDebug.log("Tier1/source skipped: sourceElement=nil", session: debugSession)
         }
 
-        let currentFocused = AXElement.focusedElement()
         if let currentFocused {
             let settable = AXElement.selectedTextSettable(currentFocused)
             PromptPasteDebug.log(
@@ -160,7 +126,7 @@ enum TextReplacer {
             PromptPasteDebug.log("Tier1/focused skipped: system focused element=nil", session: debugSession)
         }
 
-        // Non-Safari compatibility tiers.
+        // Compatibility tiers for non-web controls that do not support direct AX.
         if let sourceElement {
             let webKitSuccess = AXElement.performWebKitTextOperationReplace(
                 element: sourceElement,
@@ -192,7 +158,7 @@ enum TextReplacer {
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
         PromptPasteDebug.log(
-            "Non-Safari clipboard write count=\(writtenCount) len=\(ClipboardStore.currentString().count)",
+            "Non-web clipboard write count=\(writtenCount) len=\(ClipboardStore.currentString().count)",
             session: debugSession)
         try? await Task.sleep(nanoseconds: 50_000_000)
 
@@ -201,7 +167,7 @@ enum TextReplacer {
             pastedViaMenu = await AXMenuAction.performPaste(in: targetApp)
         }
         PromptPasteDebug.log(
-            "Non-Safari AX menu paste reported=\(pastedViaMenu)",
+            "Non-web AX menu paste reported=\(pastedViaMenu)",
             session: debugSession)
 
         if !pastedViaMenu {
@@ -209,7 +175,7 @@ enum TextReplacer {
                 to: targetApp,
                 debugSession: debugSession)
             PromptPasteDebug.log(
-                "Non-Safari keyboard paste dispatch=\(dispatched)",
+                "Non-web keyboard paste dispatch=\(dispatched)",
                 session: debugSession)
         }
 
@@ -217,7 +183,7 @@ enum TextReplacer {
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }
-        PromptPasteDebug.log("REPLACE END non-Safari fallback", session: debugSession)
+        PromptPasteDebug.log("REPLACE END non-web fallback", session: debugSession)
         return true
     }
 
@@ -227,9 +193,98 @@ enum TextReplacer {
         KeyPoster.postUndo(to: targetApp)
     }
 
-    private static func isSafariLike(_ app: NSRunningApplication?) -> Bool {
+    private static func pasteWebContent(
+        _ text: String,
+        snapshot: ClipboardSnapshot?,
+        targetApp: NSRunningApplication?,
+        debugSession: String
+    ) async -> Bool {
+        // Capture the current clipboard here even when selection capture used AX
+        // and therefore did not already create a snapshot.
+        let originalClipboard = snapshot ?? ClipboardStore.snapshot()
+        let originalWasEmpty = originalClipboard == nil
+        let beforeWriteCount = ClipboardStore.changeCount
+
+        PromptPasteDebug.log(
+            "WEB paste path BEGIN clipboardCount=\(beforeWriteCount) clipboardStringLen=\(ClipboardStore.currentString().count) originalWasEmpty=\(originalWasEmpty) frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))}",
+            session: debugSession)
+
+        ClipboardStore.write(text)
+        let writtenCount = ClipboardStore.changeCount
+        PromptPasteDebug.log(
+            "WEB clipboard WRITE requestedLen=\(text.count) resultingLen=\(ClipboardStore.currentString().count) countBefore=\(beforeWriteCount) countAfter=\(writtenCount)",
+            session: debugSession)
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        PromptPasteDebug.log(
+            "WEB BEFORE System Events paste target={\(PromptPasteDebug.appSummary(targetApp))} frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))}",
+            session: debugSession)
+
+        let dispatched = KeyPoster.postPasteUsingSystemEvents(debugSession: debugSession)
+        PromptPasteDebug.log(
+            "WEB System Events dispatch returned=\(dispatched)",
+            session: debugSession)
+
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        PromptPasteDebug.log(
+            "WEB AFTER paste frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))} clipboardCount=\(ClipboardStore.changeCount) clipboardLen=\(ClipboardStore.currentString().count)",
+            session: debugSession)
+
+        if ClipboardStore.changeCount == writtenCount {
+            if let originalClipboard {
+                ClipboardStore.restore(originalClipboard)
+                PromptPasteDebug.log("WEB clipboard restored original snapshot", session: debugSession)
+            } else {
+                ClipboardStore.clear()
+                PromptPasteDebug.log("WEB clipboard restored original empty state", session: debugSession)
+            }
+        } else {
+            PromptPasteDebug.log(
+                "WEB clipboard not restored because another process changed it writtenCount=\(writtenCount) currentCount=\(ClipboardStore.changeCount)",
+                session: debugSession)
+        }
+
+        PromptPasteDebug.log(
+            "REPLACE END web path dispatched=\(dispatched)",
+            session: debugSession)
+        return dispatched
+    }
+
+    private static func isBrowserLike(_ app: NSRunningApplication?) -> Bool {
         guard let bundleID = app?.bundleIdentifier?.lowercased() else { return false }
-        return bundleID.contains("safari") || bundleID.contains("webkit")
+        let markers = [
+            "safari", "webkit", "chrome", "chromium", "firefox", "edge",
+            "brave", "vivaldi", "opera", "thebrowser"
+        ]
+        return markers.contains { bundleID.contains($0) }
+    }
+
+    private static func isInsideWebArea(_ element: AXUIElement) -> Bool {
+        var current: AXUIElement? = element
+        for _ in 0..<20 {
+            guard let node = current else { return false }
+            if role(of: node) == "AXWebArea" {
+                return true
+            }
+
+            var parentRef: CFTypeRef?
+            let error = AXUIElementCopyAttributeValue(
+                node,
+                kAXParentAttribute as CFString,
+                &parentRef)
+            guard error == .success, let parentRef else { return false }
+            current = unsafeBitCast(parentRef, to: AXUIElement.self)
+        }
+        return false
+    }
+
+    private static func role(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXRoleAttribute as CFString,
+            &value) == .success else { return nil }
+        return value as? String
     }
 
     private static func waitForApp(_ app: NSRunningApplication, timeout: TimeInterval) async {

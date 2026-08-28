@@ -149,6 +149,17 @@ enum KeyPoster {
         return postCommandKey(key: UInt16(kVK_ANSI_V), debugSession: debugSession)
     }
 
+    /// Forces a normal System Events Cmd+V regardless of the target bundle.
+    /// This is used for browser/web-content editors because several browser AX
+    /// bridges report successful direct text writes without changing the DOM.
+    @discardableResult
+    static func postPasteUsingSystemEvents(debugSession: String? = nil) -> Bool {
+        PromptPasteDebug.log(
+            "postPaste route=SystemEvents(forced) frontmost={\(PromptPasteDebug.frontmostSummary())}",
+            session: debugSession)
+        return postAppleScriptCommandKey(keyChar: "v", debugSession: debugSession)
+    }
+
     @discardableResult
     static func postUndo(
         to app: NSRunningApplication? = nil,
