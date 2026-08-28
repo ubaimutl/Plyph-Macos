@@ -5,10 +5,8 @@ import Foundation
 /// Replaces the original selection in the target app.
 ///
 /// Native AppKit controls are replaced through Accessibility. Safari webpage
-/// editors are different: AX calls can report success without changing the DOM,
-/// so after native AX replacement fails we use the clipboard + System Events
-/// paste path directly. This matches the paste mechanism verified to work in
-/// Safari web editors and avoids false-success short circuits.
+/// editors fall back to clipboard + System Events paste. The detailed debug
+/// trace for this path is written to ~/Library/Logs/PromptPaste/debug.log.
 enum TextReplacer {
     @discardableResult
     static func replace(
@@ -17,15 +15,26 @@ enum TextReplacer {
         targetApp: NSRunningApplication?,
         sourceElement: AXUIElement?
     ) async throws -> Bool {
+        let debugSession = PromptPasteDebug.newSession()
         let safariLike = isSafariLike(targetApp)
 
+        PromptPasteDebug.log(
+            "REPLACE BEGIN outputLen=\(text.count) safariLike=\(safariLike) axTrusted=\(AXAccess.isTrusted) target={\(PromptPasteDebug.appSummary(targetApp))} frontmost={\(PromptPasteDebug.frontmostSummary())} source={\(PromptPasteDebug.elementSummary(sourceElement))} snapshot=\(snapshot != nil)",
+            session: debugSession)
+
         if let targetApp {
+            PromptPasteDebug.log(
+                "Activating target app; before frontmost={\(PromptPasteDebug.frontmostSummary())}",
+                session: debugSession)
             targetApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(targetApp, timeout: 1.5)
+            PromptPasteDebug.log(
+                "Activation wait finished; frontmost={\(PromptPasteDebug.frontmostSummary())}",
+                session: debugSession)
 
-            // Do not force Safari's AX focused/main window here. Its webpage
-            // editor owns focus inside WebKit, and changing the native window
-            // focus is unnecessary for the System Events paste path below.
+            // Do not force Safari's AX focused/main window. Its webpage editor
+            // owns focus inside WebKit and the proven System Events path does not
+            // require changing Safari's native focused-window attributes.
             if !safariLike {
                 let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
                 var mainWindowRef: CFTypeRef?
@@ -49,78 +58,167 @@ enum TextReplacer {
             try? await Task.sleep(nanoseconds: safariLike ? 120_000_000 : 200_000_000)
         }
 
-        guard await KeyPoster.waitModifiersReleased() else {
+        let modifiersReleased = await KeyPoster.waitModifiersReleased()
+        PromptPasteDebug.log(
+            "Modifiers released=\(modifiersReleased) frontmost={\(PromptPasteDebug.frontmostSummary())} currentFocused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))}",
+            session: debugSession)
+        guard modifiersReleased else {
+            PromptPasteDebug.log("REPLACE ABORT releaseShortcutKeys", session: debugSession)
             throw PromptError.releaseShortcutKeys
         }
 
-        // Tier 1: direct AX replacement. This keeps Safari's native search/address
-        // fields and normal AppKit controls on the fast, clipboard-free path.
-        if let sourceElement,
-            AXElement.selectedTextSettable(sourceElement),
-            AXElement.setSelectedText(sourceElement, to: text)
-        {
-            ClipboardStore.restore(snapshot)
-            return true
+        // Tier 1: direct AX replacement for native AppKit controls, including
+        // Safari's address/search bar.
+        if let sourceElement {
+            let settable = AXElement.selectedTextSettable(sourceElement)
+            PromptPasteDebug.log(
+                "Tier1/source settable=\(settable) element={\(PromptPasteDebug.elementSummary(sourceElement))}",
+                session: debugSession)
+            if settable {
+                let success = AXElement.setSelectedText(sourceElement, to: text)
+                PromptPasteDebug.log(
+                    "Tier1/source setSelectedText success=\(success)",
+                    session: debugSession)
+                if success {
+                    ClipboardStore.restore(snapshot)
+                    PromptPasteDebug.log("REPLACE END via Tier1/source", session: debugSession)
+                    return true
+                }
+            }
+        } else {
+            PromptPasteDebug.log("Tier1/source skipped: sourceElement=nil", session: debugSession)
         }
 
-        if let element = AXElement.focusedElement(),
-            AXElement.selectedTextSettable(element),
-            AXElement.setSelectedText(element, to: text)
-        {
-            ClipboardStore.restore(snapshot)
-            return true
+        let currentFocused = AXElement.focusedElement()
+        if let currentFocused {
+            let settable = AXElement.selectedTextSettable(currentFocused)
+            PromptPasteDebug.log(
+                "Tier1/focused settable=\(settable) element={\(PromptPasteDebug.elementSummary(currentFocused))}",
+                session: debugSession)
+            if settable {
+                let success = AXElement.setSelectedText(currentFocused, to: text)
+                PromptPasteDebug.log(
+                    "Tier1/focused setSelectedText success=\(success)",
+                    session: debugSession)
+                if success {
+                    ClipboardStore.restore(snapshot)
+                    PromptPasteDebug.log("REPLACE END via Tier1/focused", session: debugSession)
+                    return true
+                }
+            }
+        } else {
+            PromptPasteDebug.log("Tier1/focused skipped: system focused element=nil", session: debugSession)
         }
 
-        // Safari webpage editors: do not trust AXTextOperation or AX menu return
-        // codes as proof that the DOM changed. Go straight to the mechanism that
-        // is known to work: write the replacement, then have System Events issue
-        // Cmd+V while Safari is frontmost. KeyPoster chooses AppleScript for
-        // Safari/WebKit targets.
+        // Safari webpage editor path. This is intentionally simple so the trace
+        // can show whether PromptPaste differs from the equivalent Terminal
+        // System Events test.
         if safariLike {
+            let beforeWriteCount = ClipboardStore.changeCount
+            let beforeWriteLength = ClipboardStore.currentString().count
+            PromptPasteDebug.log(
+                "Safari paste path BEGIN clipboardCount=\(beforeWriteCount) clipboardStringLen=\(beforeWriteLength) frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))}",
+                session: debugSession)
+
             ClipboardStore.write(text)
             let writtenCount = ClipboardStore.changeCount
+            let writtenLength = ClipboardStore.currentString().count
+            PromptPasteDebug.log(
+                "Safari clipboard WRITE requestedLen=\(text.count) resultingLen=\(writtenLength) countBefore=\(beforeWriteCount) countAfter=\(writtenCount)",
+                session: debugSession)
+
             try? await Task.sleep(nanoseconds: 100_000_000)
-            KeyPoster.postPaste(to: targetApp)
+            PromptPasteDebug.log(
+                "Safari BEFORE System Events paste frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))} clipboardCount=\(ClipboardStore.changeCount) clipboardLen=\(ClipboardStore.currentString().count)",
+                session: debugSession)
+
+            let dispatched = KeyPoster.postPaste(
+                to: targetApp,
+                debugSession: debugSession)
+            PromptPasteDebug.log(
+                "Safari System Events dispatch returned=\(dispatched)",
+                session: debugSession)
 
             try? await Task.sleep(nanoseconds: 700_000_000)
+            PromptPasteDebug.log(
+                "Safari AFTER paste frontmost={\(PromptPasteDebug.frontmostSummary())} focused={\(PromptPasteDebug.elementSummary(AXElement.focusedElement()))} clipboardCount=\(ClipboardStore.changeCount) clipboardLen=\(ClipboardStore.currentString().count)",
+                session: debugSession)
+
             if snapshot != nil && ClipboardStore.changeCount == writtenCount {
                 ClipboardStore.restore(snapshot)
+                PromptPasteDebug.log(
+                    "Safari clipboard restored original snapshot",
+                    session: debugSession)
+            } else {
+                PromptPasteDebug.log(
+                    "Safari clipboard NOT restored snapshotExists=\(snapshot != nil) writtenCount=\(writtenCount) currentCount=\(ClipboardStore.changeCount)",
+                    session: debugSession)
             }
+
+            PromptPasteDebug.log(
+                "REPLACE END Safari path dispatched=\(dispatched)",
+                session: debugSession)
             return true
         }
 
-        // Non-Safari apps retain the existing compatibility tiers.
-        if let sourceElement,
-            AXElement.performWebKitTextOperationReplace(element: sourceElement, text: text)
-        {
-            ClipboardStore.restore(snapshot)
-            return true
+        // Non-Safari compatibility tiers.
+        if let sourceElement {
+            let webKitSuccess = AXElement.performWebKitTextOperationReplace(
+                element: sourceElement,
+                text: text)
+            PromptPasteDebug.log(
+                "Tier1.5/source AXTextOperation success=\(webKitSuccess)",
+                session: debugSession)
+            if webKitSuccess {
+                ClipboardStore.restore(snapshot)
+                PromptPasteDebug.log("REPLACE END via Tier1.5/source", session: debugSession)
+                return true
+            }
         }
 
-        if let element = AXElement.focusedElement(),
-            AXElement.performWebKitTextOperationReplace(element: element, text: text)
-        {
-            ClipboardStore.restore(snapshot)
-            return true
+        if let element = AXElement.focusedElement() {
+            let webKitSuccess = AXElement.performWebKitTextOperationReplace(
+                element: element,
+                text: text)
+            PromptPasteDebug.log(
+                "Tier1.5/focused AXTextOperation success=\(webKitSuccess)",
+                session: debugSession)
+            if webKitSuccess {
+                ClipboardStore.restore(snapshot)
+                PromptPasteDebug.log("REPLACE END via Tier1.5/focused", session: debugSession)
+                return true
+            }
         }
 
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
+        PromptPasteDebug.log(
+            "Non-Safari clipboard write count=\(writtenCount) len=\(ClipboardStore.currentString().count)",
+            session: debugSession)
         try? await Task.sleep(nanoseconds: 50_000_000)
 
         var pastedViaMenu = false
         if let targetApp {
             pastedViaMenu = await AXMenuAction.performPaste(in: targetApp)
         }
+        PromptPasteDebug.log(
+            "Non-Safari AX menu paste reported=\(pastedViaMenu)",
+            session: debugSession)
 
         if !pastedViaMenu {
-            KeyPoster.postPaste(to: targetApp)
+            let dispatched = KeyPoster.postPaste(
+                to: targetApp,
+                debugSession: debugSession)
+            PromptPasteDebug.log(
+                "Non-Safari keyboard paste dispatch=\(dispatched)",
+                session: debugSession)
         }
 
         try? await Task.sleep(nanoseconds: 700_000_000)
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }
+        PromptPasteDebug.log("REPLACE END non-Safari fallback", session: debugSession)
         return true
     }
 
