@@ -148,21 +148,49 @@ final class SelectionDotController: NSObject {
     }
 
     private func selectionEndPoint(element: AXUIElement) -> NSPoint? {
+        // 1. Try standard Cocoa range
         var rangeRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
+        if AXUIElementCopyAttributeValue(
             element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
-              let rangeRef else { return nil }
-        var boundsRef: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            element,
-            kAXBoundsForRangeParameterizedAttribute as CFString,
-            rangeRef, &boundsRef) == .success,
-              let boundsRef else { return nil }
-        var rect = CGRect.zero
-        guard AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) else { return nil }
+           let rangeRef {
+            var boundsRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                kAXBoundsForRangeParameterizedAttribute as CFString,
+                rangeRef, &boundsRef) == .success,
+               let boundsRef {
+                var rect = CGRect.zero
+                if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
+                    if let pt = validateAndConvert(rect: rect) { return pt }
+                }
+            }
+        }
+
+        // 2. Try WebKit text marker range (Safari, Chrome, Electron)
+        var markerRangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success,
+           let markerRangeRef {
+            var boundsRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                "AXBoundsForTextMarkerRange" as CFString,
+                markerRangeRef, &boundsRef) == .success,
+               let boundsRef {
+                var rect = CGRect.zero
+                if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
+                    if let pt = validateAndConvert(rect: rect) { return pt }
+                }
+            }
+        }
         
+        return nil
+    }
+
+    private func validateAndConvert(rect: CGRect) -> NSPoint? {
         // BOGUS bounds check: If the returned rect is massive, Chrome/Electron returned the WebArea bounds.
-        if rect.height > 60 || rect.width > 400 {
+        // Also ignore 0 width/height rects.
+        if rect.height > 60 || rect.width > 400 || rect.width == 0 || rect.height == 0 {
             return nil
         }
         

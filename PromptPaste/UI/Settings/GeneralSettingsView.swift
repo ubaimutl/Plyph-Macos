@@ -6,7 +6,7 @@ struct GeneralSettingsView: View {
     @State private var accessibilityTrusted = AXAccess.isTrusted
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 providerGroup
                 if !accessibilityTrusted {
@@ -27,7 +27,8 @@ struct GeneralSettingsView: View {
     }
 
     private var providerGroup: some View {
-        GroupBox {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Provider").font(.headline)
             VStack(alignment: .leading, spacing: 12) {
                 Picker("Active provider", selection: $settings.provider) {
                     ForEach(Providers.all, id: \.id) { provider in
@@ -39,14 +40,15 @@ struct GeneralSettingsView: View {
 
                 ProviderSectionView(providerID: settings.provider)
             }
-            .padding(4)
-        } label: {
-            Text("Provider")
+            }
+            .padding(16)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
         }
     }
 
     private var accessibilityNotice: some View {
-        GroupBox {
+        VStack(alignment: .leading) {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
@@ -65,12 +67,16 @@ struct GeneralSettingsView: View {
                     AXAccess.openSystemSettings()
                 }
             }
-            .padding(4)
+            .padding(16)
+            .background(Color.orange.opacity(0.1))
+            .cornerRadius(8)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange, lineWidth: 1))
         }
     }
 
     private var shortcutsGroup: some View {
-        GroupBox {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Shortcuts").font(.headline)
             VStack(alignment: .leading, spacing: 10) {
                 ShortcutRow(
                     title: "Correct",
@@ -100,14 +106,15 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .padding(4)
-        } label: {
-            Text("Shortcuts")
+            .padding(16)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
         }
     }
 
     private var behaviorGroup: some View {
-        GroupBox {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Behavior").font(.headline)
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Preview before replacing", isOn: $settings.previewResults)
                 Text("Confirm, copy, or cancel the generated result.")
@@ -139,9 +146,9 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .padding(4)
-        } label: {
-            Text("Behavior")
+            .padding(16)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
         }
     }
 }

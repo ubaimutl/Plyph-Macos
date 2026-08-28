@@ -53,7 +53,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         }
 
         let correctItem = actionItem("Correct selected text", .correct, runner)
-        correctItem.image = menuSymbol("text.badge.checkmark")
+        correctItem.image = menuSymbol("wand.and.stars")
         menu.addItem(correctItem)
 
         let rewriteItem = actionItem("Rewrite selected text", .rewrite, runner)
@@ -61,7 +61,7 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         menu.addItem(rewriteItem)
 
         let promptItem = actionItem("Run selected prompt", .prompt, runner)
-        promptItem.image = menuSymbol("gearshape")
+        promptItem.image = menuSymbol("play.fill")
         menu.addItem(promptItem)
 
         let enabled = settings.enabledCustomActions

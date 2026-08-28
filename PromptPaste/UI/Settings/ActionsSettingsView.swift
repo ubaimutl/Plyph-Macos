@@ -8,7 +8,7 @@ struct ActionsSettingsView: View {
     @State private var showEditor = false
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 runPromptGroup
                 customActionsGroup

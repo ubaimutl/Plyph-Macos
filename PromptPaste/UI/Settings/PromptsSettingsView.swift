@@ -6,7 +6,7 @@ struct PromptsSettingsView: View {
     @EnvironmentObject private var settings: SettingsStore
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 builtInGroup
                 variablesGroup
