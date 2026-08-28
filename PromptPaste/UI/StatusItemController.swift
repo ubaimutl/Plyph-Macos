@@ -1,14 +1,21 @@
 import AppKit
 
-/// Manages the menu bar status item icon states, mirroring the GNOME panel
-/// icon behavior: default logo → loading while working → success briefly.
+/// Manages the menu bar status item icon states: PromptPaste logo by default,
+/// then loading while working and success briefly after completion.
 @MainActor
 final class StatusItemController {
     let item: NSStatusItem
 
     private var resetTask: Task<Void, Never>?
-    private let defaultIcon = NSImage(systemSymbolName: "sparkles",
-                                      accessibilityDescription: "PromptPaste")
+
+    /// The canonical PromptPaste symbolic mark from the GNOME project. Marking
+    /// it as a template lets macOS tint it correctly for light/dark menu bars.
+    private let defaultIcon: NSImage? = {
+        let image = NSImage(named: "MenuBarIcon")
+        image?.isTemplate = true
+        return image
+    }()
+
     private let workingIcon = NSImage(systemSymbolName: "hourglass",
                                       accessibilityDescription: "Working")
     private let successIcon = NSImage(systemSymbolName: "checkmark.circle.fill",
@@ -25,22 +32,22 @@ final class StatusItemController {
     func showWorking() {
         cancelReset()
         if let workingIcon {
+            workingIcon.isTemplate = true
             button?.image = workingIcon
             button?.title = ""
         } else {
-            button?.image = nil
-            button?.title = "PP"
+            useTextFallback()
         }
     }
 
     func showSuccess() {
         cancelReset()
         if let successIcon {
+            successIcon.isTemplate = true
             button?.image = successIcon
             button?.title = ""
         } else {
-            button?.image = nil
-            button?.title = "PP"
+            useTextFallback()
         }
         resetTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -55,18 +62,19 @@ final class StatusItemController {
             button?.image = defaultIcon
             button?.title = ""
         } else {
-            // Text fallback makes the menu-bar item visible even if an SF Symbol
-            // unexpectedly fails to resolve on a particular macOS environment.
-            button?.image = nil
-            button?.title = "PP"
+            useTextFallback()
         }
         button?.toolTip = "PromptPaste"
     }
 
-    /// Opens the status item's menu (used when the action palette is disabled,
-    /// matching the GNOME "open the panel menu" behavior).
+    /// Opens the status item's menu (used when the action palette is disabled).
     func openMenu() {
         button?.performClick(nil)
+    }
+
+    private func useTextFallback() {
+        button?.image = nil
+        button?.title = "PP"
     }
 
     private func cancelReset() {
