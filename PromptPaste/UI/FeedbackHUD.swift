@@ -109,7 +109,7 @@ final class FeedbackHUD: NSObject {
                     nanoseconds: UInt64(duration * 1_000_000_000))
                 guard let self, !Task.isCancelled, let panel = self.panel else { return }
 
-                NSAnimationContext.runAnimationGroup { context in
+                await NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.15
                     panel.animator().alphaValue = 0
                 }
