@@ -119,3 +119,62 @@ enum AXElement {
         return error == .success
     }
 }
+
+/// Triggers standard menu actions (e.g. Edit › Paste) directly on the target
+/// application's menu bar via the Accessibility API.
+///
+/// In WebKit (Safari) and Chromium (Chrome, Electron, VS Code), web content
+/// editors do not expose settable AXSelectedText attributes. Triggering the
+/// application's native Edit › Paste action causes the host application to
+/// dispatch the standard Cocoa `paste:` selector through its native responder
+/// chain directly into the active WebContent / WKWebView DOM selection.
+enum AXMenuAction {
+    @discardableResult
+    static func performPaste(in app: NSRunningApplication) -> Bool {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var menuBarRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+              let menuBarRef else { return false }
+        let menuBar = unsafeBitCast(menuBarRef, to: AXUIElement.self)
+
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            menuBar, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let menus = childrenRef as? [AXUIElement] else { return false }
+
+        for menu in menus {
+            if searchAndPressPaste(in: menu) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func searchAndPressPaste(in element: AXUIElement) -> Bool {
+        var titleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRef) == .success,
+           let title = titleRef as? String {
+            let lower = title.lowercased()
+            // Match standard localized "Paste" commands (English, German, French, Spanish, Italian, Japanese, Chinese, etc.)
+            if lower.hasPrefix("paste") || lower.hasPrefix("einsetzen") || lower.hasPrefix("coller") ||
+               lower.hasPrefix("pegar") || lower.hasPrefix("incolla") || lower.hasPrefix("貼") || lower.hasPrefix("粘") {
+                let err = AXUIElementPerformAction(element, kAXPressAction as CFString)
+                if err == .success {
+                    return true
+                }
+            }
+        }
+
+        var childrenRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+           let children = childrenRef as? [AXUIElement] {
+            for child in children {
+                if searchAndPressPaste(in: child) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+}

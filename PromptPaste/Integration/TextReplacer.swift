@@ -46,15 +46,21 @@ enum TextReplacer {
             return true
         }
 
-        // Fallback: Clipboard + Cmd+V paste.
-        // Safari/WebKit and Chromium webpage editors (inputs, textareas,
-        // contenteditable, Google Docs, Notion) live in separate helper processes.
-        // Posting Cmd+V as a global HID event delivers it to the frontmost
-        // active web responder regardless of which process owns it.
+        // Fallback: Clipboard-based replacement for WebKit (Safari), Chromium (Chrome, Electron, VS Code)
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        KeyPoster.postPaste()
+        try? await Task.sleep(nanoseconds: 40_000_000)
+
+        // Tier 2: Try native Accessibility Edit › Paste menu action on the target app
+        var pastedViaMenu = false
+        if let targetApp {
+            pastedViaMenu = AXMenuAction.performPaste(in: targetApp)
+        }
+
+        // Tier 3: If menu action was not available, inject simulated Cmd+V shortcut
+        if !pastedViaMenu {
+            KeyPoster.postPaste(to: targetApp?.processIdentifier)
+        }
 
         // Allow target app time to process the paste event before restoring
         // previous clipboard contents.
@@ -62,7 +68,7 @@ enum TextReplacer {
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }
-        return false
+        return true
     }
 
     static func sendUndo() async {

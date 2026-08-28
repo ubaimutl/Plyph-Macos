@@ -52,30 +52,22 @@ enum KeyPoster {
             state: .eventSuppressionStateSuppressionInterval
         )
 
-        let cmdKeyCode = CGKeyCode(kVK_Command)
         let targetKeyCode = CGKeyCode(key)
 
         // Include NX_DEVICELCMDKEYMASK (0x000008) so WebKit/Safari and Chromium
         // C++ event engines properly recognize the synthetic Command modifier.
         let cmdFlag = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x000008)
 
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: true)
-        let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true)
-        let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: false)
+        guard let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true),
+              let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
+        else { return }
 
-        cmdDown?.flags = cmdFlag
-        keyCharDown?.flags = cmdFlag
-        keyCharUp?.flags = cmdFlag
-        cmdUp?.flags = []
+        keyCharDown.flags = cmdFlag
+        keyCharUp.flags = cmdFlag
 
-        post(cmdDown, to: processIdentifier)
-        usleep(25_000)
         post(keyCharDown, to: processIdentifier)
-        usleep(35_000)
+        usleep(35_000) // 35ms dwell time
         post(keyCharUp, to: processIdentifier)
-        usleep(25_000)
-        post(cmdUp, to: processIdentifier)
         usleep(20_000)
     }
 
@@ -83,10 +75,8 @@ enum KeyPoster {
         guard let event else { return }
         if let processIdentifier {
             event.postToPid(processIdentifier)
-        } else {
-            // Posting to .cgSessionEventTap delivers directly into the active
-            // window server session where Safari/WebKit and Chrome event handlers listen.
-            event.post(tap: .cgSessionEventTap)
         }
+        event.post(tap: .cgSessionEventTap)
+        event.post(tap: .cghidEventTap)
     }
 }
