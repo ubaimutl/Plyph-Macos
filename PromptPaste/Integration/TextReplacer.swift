@@ -4,11 +4,11 @@ import Foundation
 
 /// Replaces the original selection in the target app.
 ///
-/// Prefer the exact Accessibility element captured with the selection. When an
-/// app (notably Safari/WebKit content) does not allow AXSelectedText writes,
-/// reactivate the owning app and fall back to a normal Cmd+V event. Posting the
-/// event globally is intentional: Safari, Chrome and other multi-process apps
-/// host page editors in helper/content processes rather than the main app PID.
+/// Native AppKit controls are replaced through Accessibility. Safari webpage
+/// editors are different: AX calls can report success without changing the DOM,
+/// so after native AX replacement fails we use the clipboard + System Events
+/// paste path directly. This matches the paste mechanism verified to work in
+/// Safari web editors and avoids false-success short circuits.
 enum TextReplacer {
     @discardableResult
     static func replace(
@@ -17,30 +17,44 @@ enum TextReplacer {
         targetApp: NSRunningApplication?,
         sourceElement: AXUIElement?
     ) async throws -> Bool {
+        let safariLike = isSafariLike(targetApp)
+
         if let targetApp {
             targetApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(targetApp, timeout: 1.5)
 
-            // Extremely important for Safari / WebKit on Sonoma VMs:
-            // Explicitly force the main window to become the focused key window.
-            let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
-            var mainWindowRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef) == .success,
-               let mainWindow = mainWindowRef {
-                AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, mainWindow)
-                // Also explicitly bring the window to front
-                AXUIElementSetAttributeValue(unsafeBitCast(mainWindow, to: AXUIElement.self), kAXMainAttribute as CFString, true as CFTypeRef)
+            // Do not force Safari's AX focused/main window here. Its webpage
+            // editor owns focus inside WebKit, and changing the native window
+            // focus is unnecessary for the System Events paste path below.
+            if !safariLike {
+                let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
+                var mainWindowRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(
+                    appElement,
+                    kAXMainWindowAttribute as CFString,
+                    &mainWindowRef
+                ) == .success,
+                   let mainWindow = mainWindowRef {
+                    AXUIElementSetAttributeValue(
+                        appElement,
+                        kAXFocusedWindowAttribute as CFString,
+                        mainWindow)
+                    AXUIElementSetAttributeValue(
+                        unsafeBitCast(mainWindow, to: AXUIElement.self),
+                        kAXMainAttribute as CFString,
+                        true as CFTypeRef)
+                }
             }
 
-            // Settle time for WebKit / Chromium DOM focus re-activation
-            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            try? await Task.sleep(nanoseconds: safariLike ? 120_000_000 : 200_000_000)
         }
 
         guard await KeyPoster.waitModifiersReleased() else {
             throw PromptError.releaseShortcutKeys
         }
 
-        // Tier 1: Try direct AX text replacement first (native fields, address bar)
+        // Tier 1: direct AX replacement. This keeps Safari's native search/address
+        // fields and normal AppKit controls on the fast, clipboard-free path.
         if let sourceElement,
             AXElement.selectedTextSettable(sourceElement),
             AXElement.setSelectedText(sourceElement, to: text)
@@ -57,36 +71,53 @@ enum TextReplacer {
             return true
         }
 
-        // Tier 1.5: Try WebKit's internal AXTextOperation (Solves Safari WebContent sandboxing perfectly)
-        if let sourceElement, AXElement.performWebKitTextOperationReplace(element: sourceElement, text: text) {
+        // Safari webpage editors: do not trust AXTextOperation or AX menu return
+        // codes as proof that the DOM changed. Go straight to the mechanism that
+        // is known to work: write the replacement, then have System Events issue
+        // Cmd+V while Safari is frontmost. KeyPoster chooses AppleScript for
+        // Safari/WebKit targets.
+        if safariLike {
+            ClipboardStore.write(text)
+            let writtenCount = ClipboardStore.changeCount
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            KeyPoster.postPaste(to: targetApp)
+
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if snapshot != nil && ClipboardStore.changeCount == writtenCount {
+                ClipboardStore.restore(snapshot)
+            }
+            return true
+        }
+
+        // Non-Safari apps retain the existing compatibility tiers.
+        if let sourceElement,
+            AXElement.performWebKitTextOperationReplace(element: sourceElement, text: text)
+        {
             ClipboardStore.restore(snapshot)
             return true
         }
 
-        if let element = AXElement.focusedElement(), AXElement.performWebKitTextOperationReplace(element: element, text: text) {
+        if let element = AXElement.focusedElement(),
+            AXElement.performWebKitTextOperationReplace(element: element, text: text)
+        {
             ClipboardStore.restore(snapshot)
             return true
         }
 
-        // Tier 2: Universal Clipboard-based replacement (Safari WebKit, Chrome, Firefox, Electron, VS Code)
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
-        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-        // Tier 3: Try native Accessibility Edit › Paste menu action (Works on Safari/Chrome when window is key)
         var pastedViaMenu = false
         if let targetApp {
             pastedViaMenu = await AXMenuAction.performPaste(in: targetApp)
         }
 
-        // Tier 4: Fallback to simulated Cmd+V shortcut with explicit modifier events (or AppleScript for Safari)
         if !pastedViaMenu {
             KeyPoster.postPaste(to: targetApp)
         }
 
-        // Allow target app time to process the paste event before restoring
-        // previous clipboard contents.
-        try? await Task.sleep(nanoseconds: 700_000_000) // 700ms
+        try? await Task.sleep(nanoseconds: 700_000_000)
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }
@@ -97,6 +128,11 @@ enum TextReplacer {
         guard await KeyPoster.waitModifiersReleased() else { return }
         try? await Task.sleep(nanoseconds: 25_000_000)
         KeyPoster.postUndo(to: targetApp)
+    }
+
+    private static func isSafariLike(_ app: NSRunningApplication?) -> Bool {
+        guard let bundleID = app?.bundleIdentifier?.lowercased() else { return false }
+        return bundleID.contains("safari") || bundleID.contains("webkit")
     }
 
     private static func waitForApp(_ app: NSRunningApplication, timeout: TimeInterval) async {
