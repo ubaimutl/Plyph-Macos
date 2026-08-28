@@ -27,8 +27,11 @@ jobs:
 
       - name: Generate canonical PromptPaste app icons
         run: |
-          python3 -m pip install --quiet cairosvg
-          python3 <<'PY'
+          python3 -m venv "$RUNNER_TEMP/icon-venv"
+          source "$RUNNER_TEMP/icon-venv/bin/activate"
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet cairosvg
+          python <<'PY'
           from pathlib import Path
           import cairosvg
 
