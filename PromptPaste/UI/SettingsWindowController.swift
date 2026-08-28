@@ -1,15 +1,20 @@
 import AppKit
 import SwiftUI
 
-/// Hosts the SwiftUI settings interface in a regular window. Only one window
-/// instance exists; opening it again brings it to the front.
+/// Hosts the SwiftUI settings interface in a regular window. PromptPaste is
+/// normally a menu-bar utility, so opening a regular window temporarily shows
+/// the app in the Dock and closing the last regular window hides it again.
 @MainActor
-final class SettingsWindowController {
+final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
     private var window: NSWindow?
 
     func show() {
+        // A real app window should behave like a normal macOS application:
+        // show PromptPaste in the Dock while the window is open.
+        NSApp.setActivationPolicy(.regular)
+
         if window == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
@@ -17,14 +22,32 @@ final class SettingsWindowController {
                 backing: .buffered, defer: false)
             window.title = "PromptPaste Settings"
             window.isReleasedWhenClosed = false
+            window.delegate = self
             window.center()
             window.contentView = NSHostingView(
                 rootView: SettingsRootView().environmentObject(SettingsStore.shared))
             self.window = window
         }
+
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Wait until AppKit has actually hidden the closing window before
+        // deciding whether any other normal PromptPaste window still exists.
+        DispatchQueue.main.async {
+            let hasVisibleRegularWindow = NSApp.windows.contains { candidate in
+                candidate.isVisible
+                    && !(candidate is NSPanel)
+                    && candidate.styleMask.contains(.titled)
+            }
+
+            if !hasVisibleRegularWindow {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
 }
 
