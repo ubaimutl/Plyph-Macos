@@ -34,14 +34,29 @@ enum KeyPoster {
     }
 
     static func postCopy(to processIdentifier: pid_t? = nil) {
+        let script = "tell application \"System Events\" to keystroke \"c\" using {command down}"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
         postCommandKey(key: UInt16(kVK_ANSI_C), to: processIdentifier)
     }
 
     static func postPaste(to processIdentifier: pid_t? = nil) {
+        let script = "tell application \"System Events\" to keystroke \"v\" using {command down}"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
         postCommandKey(key: UInt16(kVK_ANSI_V), to: processIdentifier)
     }
 
     static func postUndo(to processIdentifier: pid_t? = nil) {
+        let script = "tell application \"System Events\" to keystroke \"z\" using {command down}"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
         postCommandKey(key: UInt16(kVK_ANSI_Z), to: processIdentifier)
     }
 

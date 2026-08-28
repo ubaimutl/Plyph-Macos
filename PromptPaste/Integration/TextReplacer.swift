@@ -20,16 +20,15 @@ enum TextReplacer {
         if let targetApp {
             targetApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(targetApp, timeout: 1.5)
-            // Allow WebKit WebContent / Chromium renderer processes time to
-            // restore first responder focus in the DOM after app activation.
-            await AXElement.waitFocusRestored(in: targetApp, timeout: 1.0)
-            try? await Task.sleep(nanoseconds: 60_000_000)
+            // Settle time for WebKit / Chromium DOM focus re-activation
+            try? await Task.sleep(nanoseconds: 180_000_000) // 180ms
         }
 
         guard await KeyPoster.waitModifiersReleased() else {
             throw PromptError.releaseShortcutKeys
         }
 
+        // Tier 1: Try direct AX text replacement first (native fields, address bar)
         if let sourceElement,
             AXElement.selectedTextSettable(sourceElement),
             AXElement.setSelectedText(sourceElement, to: text)
@@ -46,25 +45,17 @@ enum TextReplacer {
             return true
         }
 
-        // Fallback: Clipboard-based replacement for WebKit (Safari), Chromium (Chrome, Electron, VS Code)
+        // Tier 2: Universal Clipboard-based replacement (Safari WebKit, Chrome, Firefox, Electron, VS Code)
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
 
-        // Tier 2: Try native Accessibility Edit › Paste menu action on the target app
-        var pastedViaMenu = false
-        if let targetApp {
-            pastedViaMenu = AXMenuAction.performPaste(in: targetApp)
-        }
-
-        // Tier 3: If menu action was not available, inject simulated Cmd+V shortcut
-        if !pastedViaMenu {
-            KeyPoster.postPaste(to: targetApp?.processIdentifier)
-        }
+        // Execute paste (AppleScript System Events + CGEvent session/HID taps)
+        KeyPoster.postPaste(to: targetApp?.processIdentifier)
 
         // Allow target app time to process the paste event before restoring
         // previous clipboard contents.
-        try? await Task.sleep(nanoseconds: 600_000_000)
+        try? await Task.sleep(nanoseconds: 700_000_000) // 700ms
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }
