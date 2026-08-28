@@ -57,6 +57,17 @@ enum TextReplacer {
             return true
         }
 
+        // Tier 1.5: Try WebKit's internal AXTextOperation (Solves Safari WebContent sandboxing perfectly)
+        if let sourceElement, AXElement.performWebKitTextOperationReplace(element: sourceElement, text: text) {
+            ClipboardStore.restore(snapshot)
+            return true
+        }
+
+        if let element = AXElement.focusedElement(), AXElement.performWebKitTextOperationReplace(element: element, text: text) {
+            ClipboardStore.restore(snapshot)
+            return true
+        }
+
         // Tier 2: Universal Clipboard-based replacement (Safari WebKit, Chrome, Firefox, Electron, VS Code)
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount

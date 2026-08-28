@@ -118,6 +118,42 @@ enum AXElement {
             element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
         return error == .success
     }
+
+    /// Invokes WebKit's internal AXTextOperation API to replace text inside WKWebView/Safari.
+    /// This bypasses standard keyboard and clipboard limitations entirely by manipulating
+    /// the WebKit DOM selection directly through its accessibility bridge.
+    @discardableResult
+    static func performWebKitTextOperationReplace(element: AXUIElement, text: String) -> Bool {
+        var rangeRef: CFTypeRef?
+        // WebKit uses AXSelectedTextMarkerRange for rich text selections
+        let rangeErr = AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &rangeRef)
+        
+        guard rangeErr == .success, let range = rangeRef else { return false }
+        
+        // Try multiple known WebKit/Chromium AXTextOperationType values
+        let operationTypes = [
+            "TextOperationReplacePreserveCase",
+            "AXTextOperationReplacePreserveCase",
+            "TextOperationReplace",
+            "AXTextOperationReplace"
+        ]
+        
+        for type in operationTypes {
+            let params: [String: Any] = [
+                "AXTextOperationType": type,
+                "AXTextOperationMarkerRanges": [range],
+                "AXTextOperationReplacementString": text
+            ]
+            var resultRef: CFTypeRef?
+            let err = AXUIElementCopyParameterizedAttributeValue(
+                element, "AXTextOperation" as CFString, params as CFDictionary, &resultRef)
+            
+            if err == .success {
+                return true
+            }
+        }
+        return false
+    }
 }
 
 /// Triggers standard menu actions (e.g. Edit › Paste) directly on the target
