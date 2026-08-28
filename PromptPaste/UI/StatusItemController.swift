@@ -7,7 +7,6 @@ final class StatusItemController {
     let item: NSStatusItem
 
     private var resetTask: Task<Void, Never>?
-    private static let menuIconSize = NSSize(width: 18, height: 18)
 
     /// The canonical PromptPaste symbolic mark from the GNOME project. The SVG
     /// has a large intrinsic canvas, so force it to menu-bar dimensions before
@@ -15,7 +14,7 @@ final class StatusItemController {
     private let defaultIcon: NSImage? = {
         guard let source = NSImage(named: "MenuBarIcon") else { return nil }
         let image = source.copy() as? NSImage ?? source
-        image.size = menuIconSize
+        image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         return image
     }()
@@ -25,7 +24,7 @@ final class StatusItemController {
                                   accessibilityDescription: "Working") else {
             return nil
         }
-        image.size = menuIconSize
+        image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         return image
     }()
@@ -35,7 +34,7 @@ final class StatusItemController {
                                   accessibilityDescription: "Done") else {
             return nil
         }
-        image.size = menuIconSize
+        image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         return image
     }()
