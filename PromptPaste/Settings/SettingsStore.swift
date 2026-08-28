@@ -44,6 +44,7 @@ final class SettingsStore: ObservableObject {
         correctShortcutJSON = defaults.string(forKey: "correct-shortcut") ?? ""
         rewriteShortcutJSON = defaults.string(forKey: "rewrite-shortcut") ?? ""
         actionsShortcutJSON = defaults.string(forKey: "actions-shortcut") ?? ""
+        enableDebugLogging = defaults.bool(forKey: "enable-debug-logging")
     }
 
     // MARK: Defaults (GSettings schema parity)
@@ -88,6 +89,7 @@ final class SettingsStore: ObservableObject {
             "explicit-copy-apps": "firefox",
             "pointer-feedback": true,
             "selection-dot-enabled": false,
+            "enable-debug-logging": false,
             "action-palette-position": "disabled",
             "variable-language": "English",
             "variable-tone": "professional",
@@ -234,6 +236,10 @@ final class SettingsStore: ObservableObject {
 
     @Published var selectionDotEnabled: Bool {
         didSet { defaults.set(selectionDotEnabled, forKey: "selection-dot-enabled") }
+    }
+
+    @Published var enableDebugLogging: Bool {
+        didSet { defaults.set(enableDebugLogging, forKey: "enable-debug-logging") }
     }
 
     /// "disabled" | "monitor-center" | "near-pointer"

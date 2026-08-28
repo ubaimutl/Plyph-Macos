@@ -20,6 +20,7 @@ enum PromptPasteDebug {
     }
 
     static func log(_ message: String, session: String? = nil) {
+        guard SettingsStore.shared.enableDebugLogging else { return }
         let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
         let sessionPart = session.map { " [\($0)]" } ?? ""
         let line = "\(timestamp)\(sessionPart) \(message)\n"

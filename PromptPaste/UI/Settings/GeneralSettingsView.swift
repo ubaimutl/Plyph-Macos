@@ -133,6 +133,11 @@ struct GeneralSettingsView: View {
                         + "Position falls back to cursor on web page content (macOS AX limitation).")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                Divider()
+                Toggle("Enable debug logging", isOn: $settings.enableDebugLogging)
+                Text("Write diagnostic metadata to ~/Library/Logs/PromptPaste/debug.log.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             .padding(4)
         } label: {
