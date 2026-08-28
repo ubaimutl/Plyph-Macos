@@ -34,29 +34,14 @@ enum KeyPoster {
     }
 
     static func postCopy(to processIdentifier: pid_t? = nil) {
-        let script = "tell application \"System Events\" to keystroke \"c\" using {command down}"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
         postCommandKey(key: UInt16(kVK_ANSI_C), to: processIdentifier)
     }
 
     static func postPaste(to processIdentifier: pid_t? = nil) {
-        let script = "tell application \"System Events\" to keystroke \"v\" using {command down}"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
         postCommandKey(key: UInt16(kVK_ANSI_V), to: processIdentifier)
     }
 
     static func postUndo(to processIdentifier: pid_t? = nil) {
-        let script = "tell application \"System Events\" to keystroke \"z\" using {command down}"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
         postCommandKey(key: UInt16(kVK_ANSI_Z), to: processIdentifier)
     }
 
@@ -67,22 +52,28 @@ enum KeyPoster {
             state: .eventSuppressionStateSuppressionInterval
         )
 
+        let cmdKeyCode = CGKeyCode(kVK_Command)
         let targetKeyCode = CGKeyCode(key)
 
-        // Include NX_DEVICELCMDKEYMASK (0x000008) so WebKit/Safari and Chromium
-        // C++ event engines properly recognize the synthetic Command modifier.
         let cmdFlag = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x000008)
 
-        guard let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true),
-              let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
-        else { return }
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: true)
+        let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true)
+        let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
+        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: false)
 
-        keyCharDown.flags = cmdFlag
-        keyCharUp.flags = cmdFlag
+        cmdDown?.flags = cmdFlag
+        keyCharDown?.flags = cmdFlag
+        keyCharUp?.flags = cmdFlag
+        cmdUp?.flags = []
 
+        post(cmdDown, to: processIdentifier)
+        usleep(20_000)
         post(keyCharDown, to: processIdentifier)
-        usleep(35_000) // 35ms dwell time
+        usleep(35_000)
         post(keyCharUp, to: processIdentifier)
+        usleep(20_000)
+        post(cmdUp, to: processIdentifier)
         usleep(20_000)
     }
 
@@ -90,8 +81,8 @@ enum KeyPoster {
         guard let event else { return }
         if let processIdentifier {
             event.postToPid(processIdentifier)
+        } else {
+            event.post(tap: .cgSessionEventTap)
         }
-        event.post(tap: .cgSessionEventTap)
-        event.post(tap: .cghidEventTap)
     }
 }

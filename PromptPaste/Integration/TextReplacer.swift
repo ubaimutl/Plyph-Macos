@@ -20,8 +20,20 @@ enum TextReplacer {
         if let targetApp {
             targetApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(targetApp, timeout: 1.5)
+
+            // Extremely important for Safari / WebKit on Sonoma VMs:
+            // Explicitly force the main window to become the focused key window.
+            let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
+            var mainWindowRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef) == .success,
+               let mainWindow = mainWindowRef {
+                AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, mainWindow)
+                // Also explicitly bring the window to front
+                AXUIElementSetAttributeValue(unsafeBitCast(mainWindow, to: AXUIElement.self), kAXMainAttribute as CFString, true as CFTypeRef)
+            }
+
             // Settle time for WebKit / Chromium DOM focus re-activation
-            try? await Task.sleep(nanoseconds: 180_000_000) // 180ms
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
         }
 
         guard await KeyPoster.waitModifiersReleased() else {
@@ -50,8 +62,16 @@ enum TextReplacer {
         let writtenCount = ClipboardStore.changeCount
         try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
 
-        // Execute paste (AppleScript System Events + CGEvent session/HID taps)
-        KeyPoster.postPaste(to: targetApp?.processIdentifier)
+        // Tier 3: Try native Accessibility Edit › Paste menu action (Works on Safari/Chrome when window is key)
+        var pastedViaMenu = false
+        if let targetApp {
+            pastedViaMenu = AXMenuAction.performPaste(in: targetApp)
+        }
+
+        // Tier 4: Fallback to simulated Cmd+V shortcut with explicit modifier events
+        if !pastedViaMenu {
+            KeyPoster.postPaste(to: targetApp?.processIdentifier)
+        }
 
         // Allow target app time to process the paste event before restoring
         // previous clipboard contents.
