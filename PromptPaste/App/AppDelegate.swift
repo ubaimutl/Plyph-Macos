@@ -1,7 +1,7 @@
 import AppKit
 
-/// Application delegate. PromptPaste lives in the menu bar and uses an
-/// explicit AppKit entry point from main.swift.
+/// Application delegate. PromptPaste normally lives only in the menu bar and
+/// uses the explicit AppKit entry point from main.swift.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
 
@@ -13,22 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        print("[PromptPaste] applicationWillFinishLaunching")
-        NSLog("[PromptPaste] applicationWillFinishLaunching")
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("[PromptPaste] applicationDidFinishLaunching")
-        NSLog("[PromptPaste] applicationDidFinishLaunching")
-
         Self.shared = self
-        guard !Self.isRunningTests else {
-            print("[PromptPaste] running tests; skipping UI startup")
-            return
-        }
+        guard !Self.isRunningTests else { return }
 
-        // PromptPaste is a menu-bar utility: no Dock icon.
+        // No Dock icon during normal menu-bar operation. Regular windows such
+        // as Settings temporarily switch the app to .regular while visible.
         NSApp.setActivationPolicy(.accessory)
 
         let statusItem = NSStatusBar.system.statusItem(
@@ -60,12 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         runner?.undoController.onStateChange = {
             // Menu items refresh each time the menu opens.
-        }
-
-        // Keep Settings visible during the current test phase; the app itself
-        // remains a menu-bar utility and does not appear in the Dock.
-        DispatchQueue.main.async {
-            SettingsWindowController.shared.show()
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
