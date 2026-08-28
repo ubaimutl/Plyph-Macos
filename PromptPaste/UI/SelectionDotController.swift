@@ -299,6 +299,7 @@ final class SelectionDotController: NSObject {
 
     private func selectionEndPoint(element: AXUIElement, primaryScreenHeight: CGFloat, mouseLocation: NSPoint) -> NSPoint? {
         // 1. Cocoa Standard Range Bounds (NSTextView, TextEdit, Pages, Xcode, Notes, Cocoa controls)
+        // Native Cocoa text ranges are 100% authoritative and pixel-perfect.
         var rangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
@@ -311,8 +312,9 @@ final class SelectionDotController: NSObject {
                let boundsRef {
                 var rect = CGRect.zero
                 if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
-                        return pt
+                    if rect.width > 0 && rect.height > 0 && rect.height <= 300 {
+                        let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
+                        return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
                     }
                 }
             }
@@ -331,45 +333,22 @@ final class SelectionDotController: NSObject {
                let boundsRef {
                 var rect = CGRect.zero
                 if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight, mouseLocation: mouseLocation) {
-                        return pt
+                    if rect.width > 0 && rect.height > 0 && rect.height <= 300 {
+                        let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
+                        // If Chromium returns the full block/paragraph container width (e.g. onlinenotepad.io),
+                        // or if maxX is far from the mouse release point, anchor to the mouse position.
+                        if rect.width > 400 || abs(rect.maxX - mouseLocation.x) > 100 {
+                            let y = abs((cocoaY + rect.height / 2) - mouseLocation.y) < 50 ? (cocoaY + rect.height / 2) : mouseLocation.y
+                            return NSPoint(x: mouseLocation.x + 8, y: y)
+                        } else {
+                            return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
+                        }
                     }
                 }
             }
         }
 
         return nil
-    }
-
-    private func validateAndConvert(rect: CGRect, primaryScreenHeight: CGFloat, mouseLocation: NSPoint) -> NSPoint? {
-        // Bounds sanity check
-        guard rect.width > 0, rect.height > 0 else { return nil }
-        guard rect.height <= 250, rect.width <= 2500 else { return nil }
-
-        // Convert Carbon/AX screen coordinates (origin top-left) to Cocoa screen coordinates (origin bottom-left)
-        let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
-
-        // Web Editor & Full-Width Paragraph Fallback (Crucial PopClip Fix):
-        // In web editors (Notepad, Docs, Reddit, Chrome, Safari contenteditable),
-        // Chromium often returns the bounding rect of the whole block element (<p>, <div>, 700px+).
-        // If the AX bounding rect's right edge is far away (> 70px) from where the user
-        // actually released the mouse, we anchor the X position directly to the mouse cursor release point!
-        let anchorX: CGFloat
-        if abs(rect.maxX - mouseLocation.x) > 70 {
-            anchorX = mouseLocation.x + 8
-        } else {
-            anchorX = rect.maxX + 8
-        }
-
-        // Vertically align to the text line if close, otherwise anchor to mouse release Y
-        let anchorY: CGFloat
-        if abs((cocoaY + rect.height / 2) - mouseLocation.y) < 60 {
-            anchorY = cocoaY + rect.height / 2
-        } else {
-            anchorY = mouseLocation.y
-        }
-
-        return NSPoint(x: anchorX, y: anchorY)
     }
 
     // MARK: - Dot Panel UI & Clamping
