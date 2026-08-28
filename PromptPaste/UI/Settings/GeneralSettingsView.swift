@@ -40,7 +40,6 @@ struct GeneralSettingsView: View {
 
                 ProviderSectionView(providerID: settings.provider)
             }
-            }
             .padding(16)
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
