@@ -16,6 +16,7 @@ final class StatusItemController {
 
     init(statusItem: NSStatusItem) {
         self.item = statusItem
+        self.item.isVisible = true
         restoreDefault()
     }
 
@@ -23,12 +24,24 @@ final class StatusItemController {
 
     func showWorking() {
         cancelReset()
-        button?.image = workingIcon
+        if let workingIcon {
+            button?.image = workingIcon
+            button?.title = ""
+        } else {
+            button?.image = nil
+            button?.title = "PP"
+        }
     }
 
     func showSuccess() {
         cancelReset()
-        button?.image = successIcon
+        if let successIcon {
+            button?.image = successIcon
+            button?.title = ""
+        } else {
+            button?.image = nil
+            button?.title = "PP"
+        }
         resetTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard let self, !Task.isCancelled else { return }
@@ -38,7 +51,16 @@ final class StatusItemController {
 
     func restoreDefault() {
         cancelReset()
-        button?.image = defaultIcon
+        if let defaultIcon {
+            button?.image = defaultIcon
+            button?.title = ""
+        } else {
+            // Text fallback makes the menu-bar item visible even if an SF Symbol
+            // unexpectedly fails to resolve on a particular macOS environment.
+            button?.image = nil
+            button?.title = "PP"
+        }
+        button?.toolTip = "PromptPaste"
     }
 
     /// Opens the status item's menu (used when the action palette is disabled,
