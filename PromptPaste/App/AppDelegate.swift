@@ -1,8 +1,8 @@
 import AppKit
 
-/// Application entry point. PromptPaste is a menu bar (accessory) app: it
-/// lives in the status area, registers the global hotkeys and wires the
-/// palette, preview, HUD and settings together.
+/// Application entry point. PromptPaste normally lives in the menu bar.
+/// During VM testing we also launch as a regular app and always show Settings
+/// so startup is impossible to miss.
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
@@ -15,23 +15,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        print("[PromptPaste] applicationWillFinishLaunching")
+        NSLog("[PromptPaste] applicationWillFinishLaunching")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        print("[PromptPaste] applicationDidFinishLaunching")
+        NSLog("[PromptPaste] applicationDidFinishLaunching")
+
         Self.shared = self
-        guard !Self.isRunningTests else { return }
+        guard !Self.isRunningTests else {
+            print("[PromptPaste] running tests; skipping UI startup")
+            return
+        }
 
-        // Keep PromptPaste as a menu-bar utility, but make the status item
-        // explicitly visible so first launch cannot appear to do nothing.
-        NSApp.setActivationPolicy(.accessory)
+        // TEST MODE: make PromptPaste a normal foreground app so it appears
+        // in the Dock and can never look like a silent background process.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
 
+        // Menu-bar item.
         let statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength)
         statusItem.isVisible = true
-
         let controller = StatusItemController(statusItem: statusItem)
         statusItemController = controller
 
-        // Pass the status controller into the runner so working/success state
-        // changes actually reach the menu-bar item.
+        // Wire status feedback correctly.
         runner = ActionRunner(statusIcons: controller)
 
         let builder = MenuBuilder(appDelegate: self)
@@ -52,25 +63,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Re-register hotkeys when the user changes them.
         observeShortcutChanges()
 
         runner?.undoController.onStateChange = {
-            // Menu items refresh each time the menu opens; nothing else to do.
+            // Menu items refresh each time the menu opens.
         }
 
-        // Ask for Accessibility permission on first launch; without it the app
-        // cannot read selections or replace text.
-        AXAccess.promptIfNeeded()
+        // Always show Settings in this test build. No first-launch flag.
+        DispatchQueue.main.async {
+            print("[PromptPaste] showing Settings window")
+            NSLog("[PromptPaste] showing Settings window")
+            SettingsWindowController.shared.show()
+        }
 
-        // Show Settings once for a newly installed build so users immediately
-        // see that the application launched and can configure a provider.
-        let firstLaunchKey = "did-show-initial-settings-v1"
-        if !UserDefaults.standard.bool(forKey: firstLaunchKey) {
-            UserDefaults.standard.set(true, forKey: firstLaunchKey)
-            DispatchQueue.main.async {
-                SettingsWindowController.shared.show()
-            }
+        // Ask for Accessibility after the visible window has been scheduled.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            _ = AXAccess.promptIfNeeded()
         }
     }
 
@@ -104,7 +112,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // The app keeps running as a menu bar utility.
         false
     }
 }
