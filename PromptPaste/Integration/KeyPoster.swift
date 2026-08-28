@@ -34,37 +34,48 @@ enum KeyPoster {
     }
 
     static func postCopy(to processIdentifier: pid_t? = nil) {
-        postKeyCombination(key: UInt16(kVK_ANSI_C), flags: [.maskCommand], to: processIdentifier)
+        postCommandKey(key: UInt16(kVK_ANSI_C), to: processIdentifier)
     }
 
     static func postPaste(to processIdentifier: pid_t? = nil) {
-        postKeyCombination(key: UInt16(kVK_ANSI_V), flags: [.maskCommand], to: processIdentifier)
+        postCommandKey(key: UInt16(kVK_ANSI_V), to: processIdentifier)
     }
 
     static func postUndo(to processIdentifier: pid_t? = nil) {
-        postKeyCombination(key: UInt16(kVK_ANSI_Z), flags: [.maskCommand], to: processIdentifier)
+        postCommandKey(key: UInt16(kVK_ANSI_Z), to: processIdentifier)
     }
 
-    private static func postKeyCombination(key: UInt16, flags: CGEventFlags, to processIdentifier: pid_t?) {
+    private static func postCommandKey(key: UInt16, to processIdentifier: pid_t?) {
         let source = CGEventSource(stateID: .combinedSessionState)
-        guard let down = CGEvent(
-            keyboardEventSource: source,
-            virtualKey: CGKeyCode(key),
-            keyDown: true),
-              let up = CGEvent(
-            keyboardEventSource: source,
-            virtualKey: CGKeyCode(key),
-            keyDown: false)
-        else { return }
+        source?.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
 
-        down.flags = flags
-        up.flags = flags
+        let cmdKeyCode = CGKeyCode(kVK_Command)
+        let targetKeyCode = CGKeyCode(key)
 
-        post(down, to: processIdentifier)
-        // 30ms dwell time between key-down and key-up gives the WindowServer,
-        // WebKit XPC, and Electron IPC time to register the key-down event.
-        usleep(30_000)
-        post(up, to: processIdentifier)
+        // Include NX_DEVICELCMDKEYMASK (0x000008) so WebKit/Safari and Chromium
+        // C++ event engines properly recognize the synthetic Command modifier.
+        let cmdFlag = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x000008)
+
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: true)
+        let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true)
+        let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
+        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: false)
+
+        cmdDown?.flags = cmdFlag
+        keyCharDown?.flags = cmdFlag
+        keyCharUp?.flags = cmdFlag
+        cmdUp?.flags = []
+
+        post(cmdDown, to: processIdentifier)
+        usleep(25_000)
+        post(keyCharDown, to: processIdentifier)
+        usleep(35_000)
+        post(keyCharUp, to: processIdentifier)
+        usleep(25_000)
+        post(cmdUp, to: processIdentifier)
         usleep(20_000)
     }
 
@@ -73,7 +84,9 @@ enum KeyPoster {
         if let processIdentifier {
             event.postToPid(processIdentifier)
         } else {
-            event.post(tap: .cghidEventTap)
+            // Posting to .cgSessionEventTap delivers directly into the active
+            // window server session where Safari/WebKit and Chrome event handlers listen.
+            event.post(tap: .cgSessionEventTap)
         }
     }
 }
