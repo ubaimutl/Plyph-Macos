@@ -1,8 +1,7 @@
 import AppKit
 
-/// Application delegate. PromptPaste normally lives in the menu bar.
-/// During VM testing we also launch as a regular app and always show Settings
-/// so startup is impossible to miss.
+/// Application delegate. PromptPaste lives in the menu bar and uses an
+/// explicit AppKit entry point from main.swift.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
 
@@ -29,26 +28,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // TEST MODE: make PromptPaste a normal foreground app so it appears
-        // in the Dock and can never look like a silent background process.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        // PromptPaste is a menu-bar utility: no Dock icon.
+        NSApp.setActivationPolicy(.accessory)
 
-        // Menu-bar item.
         let statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength)
         statusItem.isVisible = true
         let controller = StatusItemController(statusItem: statusItem)
         statusItemController = controller
 
-        // Wire status feedback correctly.
         runner = ActionRunner(statusIcons: controller)
 
         let builder = MenuBuilder(appDelegate: self)
         menuBuilder = builder
         statusItem.menu = builder.menu
 
-        // Global hotkeys (configurable in Settings; none by default).
         HotkeyManager.shared.refresh()
         HotkeyManager.shared.onHotKey = { [weak self] identifier in
             guard let self else { return }
@@ -68,14 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Menu items refresh each time the menu opens.
         }
 
-        // Always show Settings in this test build. No first-launch flag.
+        // Keep Settings visible during the current test phase; the app itself
+        // remains a menu-bar utility and does not appear in the Dock.
         DispatchQueue.main.async {
-            print("[PromptPaste] showing Settings window")
-            NSLog("[PromptPaste] showing Settings window")
             SettingsWindowController.shared.show()
         }
 
-        // Ask for Accessibility after the visible window has been scheduled.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             _ = AXAccess.promptIfNeeded()
         }
