@@ -1,9 +1,6 @@
 import AppKit
 
-/// Preview window shown before replacing (when `preview-results` is on):
-/// the generated text is editable and selectable, with a wrap toggle, an
-/// expand toggle and Cancel / Copy / Replace buttons — ported from the GNOME
-/// ResultDialog, including Escape-to-cancel and Ctrl/Cmd+Return-to-replace.
+/// Preview window shown before replacing (when `preview-results` is on).
 @MainActor
 final class PreviewController: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
@@ -12,6 +9,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
     private var expandButton: NSButton?
     private var compactFrame = NSRect.zero
     private var expanded = false
+    private var finishing = false
     private let result: String
 
     private let onReplace: (String) -> Void
@@ -31,9 +29,10 @@ final class PreviewController: NSObject, NSWindowDelegate {
         guard panel == nil else { return }
 
         let panel = PreviewPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 380),
             styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered, defer: false)
+        panel.minSize = NSSize(width: 580, height: 320)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.level = .floating
@@ -43,7 +42,7 @@ final class PreviewController: NSObject, NSWindowDelegate {
         panel.delegate = self
 
         let effect = NSVisualEffectView(
-            frame: NSRect(x: 0, y: 0, width: 620, height: 360))
+            frame: NSRect(x: 0, y: 0, width: 700, height: 380))
         effect.material = .windowBackground
         effect.state = .active
         effect.blendingMode = .behindWindow
@@ -52,33 +51,37 @@ final class PreviewController: NSObject, NSWindowDelegate {
         effect.layer?.cornerCurve = .continuous
         effect.layer?.masksToBounds = true
 
-        // Header: Result — Wrap — Expand
         let header = NSStackView()
         header.orientation = .horizontal
         header.spacing = 8
         header.alignment = .centerY
+
         let title = NSTextField(labelWithString: "Result")
         title.font = .boldSystemFont(ofSize: 15)
+
         let wrap = NSButton(title: "Wrap", target: self, action: #selector(toggleWrap))
         wrap.setButtonType(.pushOnPushOff)
         wrap.bezelStyle = .rounded
         wrap.state = .on
+
         let expand = NSButton(title: "", target: self, action: #selector(toggleExpand))
         expand.isBordered = false
         expand.image = NSImage(
             systemSymbolName: "arrow.up.left.and.arrow.down.right",
             accessibilityDescription: "Expand preview")
+
         header.addArrangedSubview(title)
         header.addArrangedSubview(wrap)
         header.addArrangedSubview(expand)
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        // Editable, selectable result text.
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
-        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 560, height: 260))
+
+        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 640, height: 280))
         text.isEditable = true
         text.isSelectable = true
         text.isRichText = false
@@ -90,24 +93,26 @@ final class PreviewController: NSObject, NSWindowDelegate {
         text.drawsBackground = false
         scroll.documentView = text
         scroll.translatesAutoresizingMaskIntoConstraints = false
+
         self.textView = text
         self.wrapButton = wrap
         self.expandButton = expand
 
-        // Buttons: Cancel / Copy / Replace (Replace is the primary action).
         let buttons = NSStackView()
         buttons.orientation = .horizontal
         buttons.spacing = 10
+
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
         cancel.bezelStyle = .rounded
         cancel.keyEquivalent = "\u{1b}"
+
         let copy = NSButton(title: "Copy", target: self, action: #selector(copyClicked))
         copy.bezelStyle = .rounded
+
         let replace = NSButton(title: "Replace", target: self, action: #selector(replaceClicked))
         replace.bezelStyle = .rounded
-        replace.hasDestructiveAction = false
         replace.keyEquivalent = "\r"
-        replace.highlight(true)
+
         buttons.addArrangedSubview(cancel)
         buttons.addArrangedSubview(copy)
         buttons.addArrangedSubview(replace)
@@ -120,15 +125,17 @@ final class PreviewController: NSObject, NSWindowDelegate {
         panel.contentView = effect
 
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: effect.topAnchor, constant: 14),
-            header.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
-            header.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -16),
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
-            scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
-            scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -16),
-            scroll.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -12),
-            buttons.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -14),
-            buttons.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -16),
+            header.topAnchor.constraint(equalTo: effect.topAnchor, constant: 16),
+            header.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
+            header.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+            scroll.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
+            scroll.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+            scroll.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -14),
+
+            buttons.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -16),
+            buttons.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
         ])
 
         panel.onEscape = { [weak self] in self?.cancelClicked() }
@@ -136,19 +143,19 @@ final class PreviewController: NSObject, NSWindowDelegate {
 
         self.panel = panel
 
-        // Compute the compact frame from the GNOME sizing rules.
         let screen = NSScreen.main ?? NSScreen.screens.first
-        let screenWidth = screen?.frame.width ?? 1200
-        let screenHeight = screen?.frame.height ?? 800
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let estimatedLines = result
             .split(separator: "\n", omittingEmptySubsequences: false)
             .reduce(0) { total, line in
-                total + max(1, Int(ceil(Double(line.count) / 70.0)))
+                total + max(1, Int(ceil(Double(line.count) / 80.0)))
             }
-        let width = min(680, max(500, screenWidth * 0.4))
-        let height: CGFloat = min(
-            max(200, screenHeight * 0.5),
-            max(96, CGFloat(estimatedLines) * 21 + 24))
+
+        // Never collapse short results into a tiny strip. Start as a useful
+        // editor-sized window and grow moderately for longer output.
+        let width = min(760, max(640, visible.width * 0.55))
+        let contentDrivenHeight = CGFloat(estimatedLines) * 21 + 150
+        let height = min(max(340, visible.height * 0.52), max(340, contentDrivenHeight))
         compactFrame = NSRect(x: 0, y: 0, width: width, height: height)
 
         panel.setFrame(centerIn(screen: screen, size: compactFrame.size), display: false)
@@ -179,7 +186,9 @@ final class PreviewController: NSObject, NSWindowDelegate {
         let wrapOn = (wrapButton?.state ?? .on) == .on
         text.textContainer?.widthTracksTextView = wrapOn
         if !wrapOn {
-            text.textContainer?.containerSize = NSSize(width: 10_000, height: CGFloat.greatestFiniteMagnitude)
+            text.textContainer?.containerSize = NSSize(
+                width: 10_000,
+                height: CGFloat.greatestFiniteMagnitude)
         }
         text.needsLayout = true
     }
@@ -191,51 +200,53 @@ final class PreviewController: NSObject, NSWindowDelegate {
                 ? "arrow.down.right.and.arrow.up.left"
                 : "arrow.up.left.and.arrow.down.right",
             accessibilityDescription: expanded ? "Restore preview size" : "Expand preview")
+
         let screen = NSScreen.main ?? NSScreen.screens.first
-        let screenWidth = screen?.frame.width ?? 1200
-        let screenHeight = screen?.frame.height ?? 800
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let size: NSSize
         if expanded {
             size = NSSize(
-                width: max(480, screenWidth - 160),
-                height: max(260, screenHeight - 300))
+                width: max(640, visible.width - 120),
+                height: max(400, visible.height - 140))
         } else {
             size = compactFrame.size
         }
-        let frame = centerIn(screen: screen, size: size)
-        panel?.setFrame(frame, display: true, animate: true)
+        panel?.setFrame(centerIn(screen: screen, size: size), display: true, animate: true)
     }
 
     @objc private func replaceClicked() {
+        guard !finishing else { return }
+        finishing = true
         let text = textView?.string ?? ""
         close()
         onReplace(text)
     }
 
     @objc private func copyClicked() {
+        guard !finishing else { return }
+        finishing = true
         let text = textView?.string ?? ""
         close()
         onCopy(text)
     }
 
     @objc private func cancelClicked() {
+        guard !finishing else { return }
+        finishing = true
         close()
         onCancel()
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        // Like a sheet: leaving the preview without a decision cancels it.
-        // (The GNOME dialog is modal; here Escape, the close button, or
-        // switching away all cancel.)
-        if panel != nil {
-            close()
-            onCancel()
-        }
+        // Dismiss only when the user genuinely leaves the preview. Do not fire
+        // Cancel as a side effect of Replace/Copy closing the panel.
+        guard panel != nil, !finishing else { return }
+        finishing = true
+        close()
+        onCancel()
     }
 }
 
-/// Panel subclass implementing the preview keyboard behavior: Escape cancels,
-/// Ctrl+Return or Cmd+Return replaces.
 final class PreviewPanel: NSPanel {
     var onEscape: (() -> Void)?
     var onActionReturn: (() -> Void)?
@@ -244,11 +255,11 @@ final class PreviewPanel: NSPanel {
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.control, .command])
-        if event.keyCode == 53 {  // Escape
+        if event.keyCode == 53 {
             onEscape?()
             return
         }
-        if event.keyCode == 36 && !flags.isEmpty {  // Return with Ctrl or Cmd
+        if event.keyCode == 36 && !flags.isEmpty {
             onActionReturn?()
             return
         }
