@@ -127,14 +127,14 @@ final class SelectionDotController: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hideDot()
+            Task { @MainActor in self?.hideDot() }
         }
         let obs2 = nc.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hideDot()
+            Task { @MainActor in self?.hideDot() }
         }
         workspaceObservers = [obs1, obs2]
     }
@@ -210,11 +210,7 @@ final class SelectionDotController: NSObject {
         let systemWide = AXUIElementCreateSystemWide()
         let primaryScreenHeight = NSScreen.screens.first?.frame.height ?? 0
         let carbonY = primaryScreenHeight - mouseLocation.y
-        var hitRef: CFTypeRef?
-        if AXUIElementCopyElementAtPosition(systemWide, Float(mouseLocation.x), Float(carbonY), &hitRef) == .success,
-           let hitRef {
-            hitElement = unsafeBitCast(hitRef, to: AXUIElement.self)
-        }
+        _ = AXUIElementCopyElementAtPosition(systemWide, Float(mouseLocation.x), Float(carbonY), &hitElement)
 
         // Target element candidate list to inspect
         let candidates = [element, hitElement].compactMap { $0 }
