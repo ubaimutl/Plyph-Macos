@@ -1,19 +1,17 @@
 import AppKit
 import ApplicationServices
 
-/// Optional floating action indicator: a small non-activating panel that
-/// appears near the user's selection and, when clicked, opens the action
-/// palette — similar to the PromptPaste Chrome extension's selection bubble.
+/// Floating action indicator: a small non-activating panel that appears near the
+/// user's selection and, when clicked, opens the action palette.
 ///
-/// ## Approach
-/// Uses `NSEvent.addGlobalMonitorForEvents` and `NSEvent.addLocalMonitorForEvents`
-/// to detect mouse-up events (which end text selection). After a debounce, reads
-/// the focused app's selected text via AX. If text is selected, shows a small dot
-/// near the selection bounds (or near the mouse cursor when AX bounds are unavailable,
-/// e.g. in WKWebView content — a documented macOS AX limitation).
-///
-/// ## Focus steal prevention
-/// The panel uses `.nonactivatingPanel` so it never steals key focus.
+/// Implements the exact selection detection and positioning architecture used by PopClip:
+/// 1. Monitors mouse-up events systemwide via global and local event monitors.
+/// 2. Suppresses popup when Command (⌘) modifier key is held during selection.
+/// 3. Detects and immediately suppresses for secure/password fields and excluded apps.
+/// 4. Discovers selection via focused element and point-hit element fallback.
+/// 5. Calculates precise screen bounds via standard Cocoa AX ranges and WebKit/Chromium Text Markers.
+/// 6. Dismisses immediately upon keyboard typing (keyDown), scrolling (scrollWheel), or outside clicks.
+/// 7. Uses `.nonactivatingPanel` so key focus is never stolen from the active application.
 @MainActor
 final class SelectionDotController: NSObject {
 
@@ -25,10 +23,26 @@ final class SelectionDotController: NSObject {
     private var debounceTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
     private var onActivate: (() -> Void)?
-    private var globalMouseMonitor: Any?
-    private var localMouseMonitor: Any?
 
-    // MARK: Public
+    private var globalMouseUpMonitor: Any?
+    private var localMouseUpMonitor: Any?
+    private var globalDismissMonitor: Any?
+    private var localDismissMonitor: Any?
+    private var workspaceObservers: [NSObjectProtocol] = []
+
+    // MARK: - Excluded Apps & System Identifiers (PopClip rules)
+    private static let excludedBundleIdentifiers: Set<String> = [
+        "com.apple.loginwindow",
+        "com.apple.ScreenSaver.Engine",
+        "com.apple.SystemUIServer",
+        "com.1password.1password",
+        "com.1password.7",
+        "com.bitwarden.desktop",
+        "org.keepassxc.keepassxc",
+        "com.lastpass.LastPass"
+    ]
+
+    // MARK: - Public
 
     func start(onActivate: @escaping () -> Void) {
         guard !enabled else { return }
@@ -44,63 +58,142 @@ final class SelectionDotController: NSObject {
         hideDot()
     }
 
-    // MARK: Mouse monitoring
+    // MARK: - Event Monitoring
 
     private func installMonitors() {
-        guard globalMouseMonitor == nil else { return }
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+        guard globalMouseUpMonitor == nil else { return }
+
+        // 1. Mouse Up Monitor (Selection Completed)
+        globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseUp]
-        ) { [weak self] _ in
+        ) { [weak self] event in
             guard let self else { return }
+            // PopClip Rule: Suppress if Command key is held down during selection
+            if event.modifierFlags.contains(.command) {
+                Task { @MainActor in self.hideDot() }
+                return
+            }
             let loc = NSEvent.mouseLocation
             Task { @MainActor in
                 self.scheduleCheck(mouseLocation: loc)
             }
         }
 
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(
+        localMouseUpMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseUp]
         ) { [weak self] event in
             guard let self else { return event }
+            if event.modifierFlags.contains(.command) {
+                Task { @MainActor in self.hideDot() }
+                return event
+            }
             let loc = NSEvent.mouseLocation
             Task { @MainActor in
                 self.scheduleCheck(mouseLocation: loc)
             }
             return event
         }
+
+        // 2. Dismiss Monitors: Instant dismissal on typing, scrolling, or outside clicks (PopClip standard)
+        let dismissMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel]
+
+        globalDismissMonitor = NSEvent.addGlobalMonitorForEvents(matching: dismissMask) { [weak self] event in
+            guard let self, let panel = self.panel, panel.isVisible else { return }
+            if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
+                let mouseLoc = NSEvent.mouseLocation
+                if panel.frame.contains(mouseLoc) {
+                    return
+                }
+            }
+            Task { @MainActor in self.hideDot() }
+        }
+
+        localDismissMonitor = NSEvent.addLocalMonitorForEvents(matching: dismissMask) { [weak self] event in
+            guard let self, let panel = self.panel, panel.isVisible else { return event }
+            if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
+                let mouseLoc = NSEvent.mouseLocation
+                if panel.frame.contains(mouseLoc) {
+                    return event
+                }
+            }
+            Task { @MainActor in self.hideDot() }
+            return event
+        }
+
+        // 3. Workspace Observers: Dismiss on app switch or deactivate
+        let nc = NSWorkspace.shared.notificationCenter
+        let obs1 = nc.addObserver(
+            forName: NSWorkspace.didDeactivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.hideDot()
+        }
+        let obs2 = nc.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.hideDot()
+        }
+        workspaceObservers = [obs1, obs2]
     }
 
     private func removeMonitors() {
-        if let m = globalMouseMonitor {
+        if let m = globalMouseUpMonitor {
             NSEvent.removeMonitor(m)
-            globalMouseMonitor = nil
+            globalMouseUpMonitor = nil
         }
-        if let m = localMouseMonitor {
+        if let m = localMouseUpMonitor {
             NSEvent.removeMonitor(m)
-            localMouseMonitor = nil
+            localMouseUpMonitor = nil
         }
+        if let m = globalDismissMonitor {
+            NSEvent.removeMonitor(m)
+            globalDismissMonitor = nil
+        }
+        if let m = localDismissMonitor {
+            NSEvent.removeMonitor(m)
+            localDismissMonitor = nil
+        }
+        for obs in workspaceObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+        }
+        workspaceObservers.removeAll()
     }
 
     private func scheduleCheck(mouseLocation: NSPoint) {
         debounceTask?.cancel()
         debounceTask = Task { [weak self] in
             guard let self else { return }
-            // 250 ms debounce gives the host application time to commit the selection.
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            // 180 ms debounce gives the target application time to commit the selection range
+            try? await Task.sleep(nanoseconds: 180_000_000)
             guard !Task.isCancelled else { return }
             self.evaluateCurrentSelection(mouseLocation: mouseLocation)
         }
     }
 
-    // MARK: Selection evaluation
+    // MARK: - Selection Evaluation & Suppression Rules
 
     private func evaluateCurrentSelection(mouseLocation: NSPoint) {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else { return }
         if frontApp.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
 
-        var element: AXUIElement?
+        // Exclusion Rule 1: Excluded system / password manager apps
+        if let bundleID = frontApp.bundleIdentifier {
+            if Self.excludedBundleIdentifiers.contains(bundleID) {
+                hideDot()
+                return
+            }
+            if SettingsStore.shared.explicitCopyAppList.contains(bundleID.lowercased()) {
+                hideDot()
+                return
+            }
+        }
 
+        // Element Discovery: Stage 1 - Focused Element
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+        var element: AXUIElement?
         var focusedRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
@@ -112,24 +205,59 @@ final class SelectionDotController: NSObject {
             element = AXElement.focusedElement()
         }
 
-        var hasSelection = false
-        var targetElement = element
+        // Element Discovery: Stage 2 - Element at mouse position (fallback for WebAreas / complex trees)
+        var hitElement: AXUIElement?
+        let systemWide = AXUIElementCreateSystemWide()
+        let primaryScreenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let carbonY = primaryScreenHeight - mouseLocation.y
+        var hitRef: CFTypeRef?
+        if AXUIElementCopyElementAtPosition(systemWide, Float(mouseLocation.x), Float(carbonY), &hitRef) == .success,
+           let hitRef {
+            hitElement = unsafeBitCast(hitRef, to: AXUIElement.self)
+        }
 
-        // 1. Try to read the text directly via Accessibility
-        if let targetElement {
-            var textRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(
-                targetElement, kAXSelectedTextAttribute as CFString, &textRef) == .success,
-               let str = textRef as? String,
-               !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                hasSelection = true
+        // Target element candidate list to inspect
+        let candidates = [element, hitElement].compactMap { $0 }
+
+        // Exclusion Rule 2: Password / Secure Text Fields (PopClip Security Rule)
+        for candidate in candidates {
+            if isSecureField(element: candidate) {
+                hideDot()
+                return
             }
         }
 
-        // 2. If AX text read failed (Chrome, Electron, some WebKit elements), check if Edit > Copy is enabled!
+        // Selection Verification across candidates
+        var hasSelection = false
+        var selectedElement: AXUIElement?
+
+        for candidate in candidates {
+            var textRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                candidate, kAXSelectedTextAttribute as CFString, &textRef) == .success,
+               let str = textRef as? String,
+               !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hasSelection = true
+                selectedElement = candidate
+                break
+            }
+
+            // WebKit text marker check
+            var markerRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                candidate, "AXSelectedTextMarkerRange" as CFString, &markerRef) == .success,
+               markerRef != nil {
+                hasSelection = true
+                selectedElement = candidate
+                break
+            }
+        }
+
+        // Fallback check: Edit > Copy enabled in menu (Chromium/Electron/WebViews with inaccessible text)
         if !hasSelection {
             if AXMenuAction.isCopyEnabled(in: frontApp) {
                 hasSelection = true
+                selectedElement = element ?? hitElement
             }
         }
 
@@ -138,17 +266,43 @@ final class SelectionDotController: NSObject {
             return
         }
 
+        // Calculate Position
         let pos: NSPoint
-        if let targetElement, let pt = selectionEndPoint(element: targetElement) {
+        if let target = selectedElement, let pt = selectionEndPoint(element: target, primaryScreenHeight: primaryScreenHeight) {
+            pos = pt
+        } else if let el = element, let pt = selectionEndPoint(element: el, primaryScreenHeight: primaryScreenHeight) {
             pos = pt
         } else {
             pos = NSPoint(x: mouseLocation.x + 14, y: mouseLocation.y + 14)
         }
+
         showDot(at: pos)
     }
 
-    private func selectionEndPoint(element: AXUIElement) -> NSPoint? {
-        // 1. Try standard Cocoa range
+    // MARK: - Security / Password Detection
+
+    private func isSecureField(element: AXUIElement) -> Bool {
+        var roleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
+           let role = roleRef as? String,
+           role == "AXSecureTextField" {
+            return true
+        }
+
+        var subroleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+           let subrole = subroleRef as? String,
+           subrole == "AXSecureTextField" {
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Systemwide Selection Geometry (PopClip Method)
+
+    private func selectionEndPoint(element: AXUIElement, primaryScreenHeight: CGFloat) -> NSPoint? {
+        // 1. Cocoa Standard Range Bounds (NSTextView, TextEdit, Pages, Xcode, Notes, Cocoa controls)
         var rangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
@@ -161,12 +315,14 @@ final class SelectionDotController: NSObject {
                let boundsRef {
                 var rect = CGRect.zero
                 if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if let pt = validateAndConvert(rect: rect) { return pt }
+                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight) {
+                        return pt
+                    }
                 }
             }
         }
 
-        // 2. Try WebKit text marker range (Safari, Chrome, Electron)
+        // 2. WebKit / Chromium Text Marker Range Bounds (Safari, Chrome, Arc, Brave, Electron, VS Code, Slack, Discord)
         var markerRangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success,
@@ -179,27 +335,27 @@ final class SelectionDotController: NSObject {
                let boundsRef {
                 var rect = CGRect.zero
                 if AXValueGetValue(boundsRef as! AXValue, .cgRect, &rect) {
-                    if let pt = validateAndConvert(rect: rect) { return pt }
+                    if let pt = validateAndConvert(rect: rect, primaryScreenHeight: primaryScreenHeight) {
+                        return pt
+                    }
                 }
             }
         }
-        
+
         return nil
     }
 
-    private func validateAndConvert(rect: CGRect) -> NSPoint? {
-        // BOGUS bounds check: If the returned rect is massive, Chrome/Electron returned the WebArea bounds.
-        // Also ignore 0 width/height rects.
-        if rect.height > 60 || rect.width > 400 || rect.width == 0 || rect.height == 0 {
-            return nil
-        }
-        
-        let screenH = NSScreen.screens.first?.frame.height ?? 0
-        let cocoaY = screenH - rect.origin.y - rect.height
+    private func validateAndConvert(rect: CGRect, primaryScreenHeight: CGFloat) -> NSPoint? {
+        // BOGUS bounds check: Validate bounds are realistic (not 0, not whole window, not offscreen)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        guard rect.height <= 200, rect.width <= 1600 else { return nil }
+
+        // Convert Carbon/AX screen coordinates (origin top-left) to Cocoa screen coordinates (origin bottom-left)
+        let cocoaY = primaryScreenHeight - rect.origin.y - rect.height
         return NSPoint(x: rect.maxX + 8, y: cocoaY + rect.height / 2)
     }
 
-    // MARK: Dot panel
+    // MARK: - Dot Panel UI & Clamping
 
     private func showDot(at pt: NSPoint) {
         hideTask?.cancel()
@@ -209,10 +365,12 @@ final class SelectionDotController: NSObject {
 
         let sz = panel.frame.size
         var origin = NSPoint(x: pt.x, y: pt.y - sz.height / 2)
+
+        // Find the target screen containing the point and clamp within its visible frame
         for scr in NSScreen.screens where scr.frame.contains(pt) {
             let vis = scr.visibleFrame
-            origin.x = max(vis.minX + 4, min(origin.x, vis.maxX - sz.width - 4))
-            origin.y = max(vis.minY + 4, min(origin.y, vis.maxY - sz.height - 4))
+            origin.x = max(vis.minX + 6, min(origin.x, vis.maxX - sz.width - 6))
+            origin.y = max(vis.minY + 6, min(origin.y, vis.maxY - sz.height - 6))
             break
         }
         panel.setFrameOrigin(origin)
@@ -272,7 +430,7 @@ final class SelectionDotController: NSObject {
     }
 }
 
-// MARK: - Dot button view
+// MARK: - Dot Button View (Polished Apple-Style Floating Bubble)
 
 private final class DotButtonView: NSView {
     var onActivate: (() -> Void)?
@@ -306,13 +464,15 @@ private final class DotButtonView: NSView {
         let r = bounds.insetBy(dx: 1.5, dy: 1.5)
         let circle = NSBezierPath(ovalIn: r)
 
+        // Native Dark Glass / PopClip aesthetic
         let fillColor = hovered
-            ? NSColor(red: 0.48, green: 0.22, blue: 0.92, alpha: 1.0)
-            : NSColor(red: 0.38, green: 0.14, blue: 0.78, alpha: 0.98)
+            ? NSColor(white: 0.12, alpha: 0.95)
+            : NSColor(white: 0.18, alpha: 0.90)
         fillColor.setFill()
         circle.fill()
 
-        NSColor.white.withAlphaComponent(0.35).setStroke()
+        // Subtle crisp white rim
+        NSColor.white.withAlphaComponent(hovered ? 0.35 : 0.20).setStroke()
         circle.lineWidth = 1.0
         circle.stroke()
 
