@@ -1,11 +1,16 @@
 import Foundation
 import Security
 
-/// Keychain-backed storage for provider API keys/tokens, mirroring the GNOME
-/// version's Secret Service storage (one secret per provider). Keys are never
-/// written to UserDefaults or plain files.
+/// Keychain-backed storage for provider API keys/tokens.
+///
+/// GitHub CI artifacts are ad-hoc signed, so macOS can ask for keychain access
+/// again when a new build has a different code hash. Cache successful reads in
+/// memory for the lifetime of the process so one request does not prompt again
+/// on every AI action. Properly signed release builds still use Keychain as the
+/// persistent source of truth.
 enum KeychainStore {
     static let service = "dev.ubai.PromptPaste"
+    private static let credentialCache = NSCache<NSString, NSString>()
 
     enum KeychainError: LocalizedError {
         case unavailable(OSStatus)
@@ -24,8 +29,12 @@ enum KeychainStore {
         }
     }
 
-    /// Reads the stored credential for a provider, or "" when none is stored.
     static func read(provider: String) throws -> String {
+        let cacheKey = provider as NSString
+        if let cached = credentialCache.object(forKey: cacheKey) {
+            return cached as String
+        }
+
         var query = baseQuery(provider: provider)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -34,7 +43,9 @@ enum KeychainStore {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecSuccess {
             guard let data = result as? Data else { return "" }
-            return String(data: data, encoding: .utf8) ?? ""
+            let value = String(data: data, encoding: .utf8) ?? ""
+            credentialCache.setObject(value as NSString, forKey: cacheKey)
+            return value
         }
         if status == errSecItemNotFound {
             return ""
@@ -42,7 +53,6 @@ enum KeychainStore {
         throw KeychainError.unavailable(status)
     }
 
-    /// Stores a credential; an empty value removes it (like the GNOME version).
     static func write(_ value: String, provider: String) throws {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -60,6 +70,7 @@ enum KeychainStore {
             query as CFDictionary,
             attributes as CFDictionary)
         if updateStatus == errSecSuccess {
+            credentialCache.setObject(trimmed as NSString, forKey: provider as NSString)
             return
         }
         if updateStatus != errSecItemNotFound {
@@ -75,6 +86,8 @@ enum KeychainStore {
         if addStatus != errSecSuccess {
             throw KeychainError.unavailable(addStatus)
         }
+
+        credentialCache.setObject(trimmed as NSString, forKey: provider as NSString)
     }
 
     static func delete(provider: String) throws {
@@ -82,6 +95,7 @@ enum KeychainStore {
         if status != errSecSuccess && status != errSecItemNotFound {
             throw KeychainError.unavailable(status)
         }
+        credentialCache.removeObject(forKey: provider as NSString)
     }
 
     private static func baseQuery(provider: String) -> [String: Any] {

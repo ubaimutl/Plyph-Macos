@@ -1,22 +1,26 @@
 import AppKit
 
-/// Floating status label that follows the pointer — the macOS equivalent of the
-/// GNOME extension's pointer-feedback label ("Working…", errors, "Copied").
-/// Automatically disabled when the user turns `pointer-feedback` off.
+/// Compact pointer-following feedback HUD used for working, success and error
+/// messages. It deliberately stays non-activating so it never steals focus
+/// from the application whose selection PromptPaste is transforming.
 @MainActor
-final class FeedbackHUD {
+final class FeedbackHUD: NSObject {
     static let shared = FeedbackHUD()
 
     private var panel: NSPanel?
+    private var effectView: NSVisualEffectView?
     private var label: NSTextField?
+    private var iconView: NSImageView?
     private var hideTask: Task<Void, Never>?
+    private var followTimer: Timer?
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
     func show(_ message: String, isError: Bool, duration: TimeInterval) {
         let settings = SettingsStore.shared
         if !settings.pointerFeedback {
-            // GNOME falls back to a notification only for errors.
             if isError {
                 present(message: message, isError: true, duration: duration)
             }
@@ -27,92 +31,182 @@ final class FeedbackHUD {
 
     private func present(message: String, isError: Bool, duration: TimeInterval) {
         hideTask?.cancel()
+        hideTask = nil
+
         if panel == nil {
             createPanel()
         }
-        guard let panel, let label else { return }
+        guard
+            let panel,
+            let effectView,
+            let label,
+            let iconView
+        else { return }
 
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-            .foregroundColor: NSColor.white,
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
         ]
         let attributed = NSAttributedString(string: message, attributes: attributes)
-        let maxWidth: CGFloat = 360
+        let maxTextWidth: CGFloat = 300
         let fitting = attributed.boundingRect(
-            with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin])
-        let padding = NSEdgeInsets(
-            top: 8, left: 12, bottom: 8, right: 12)
-        let size = NSSize(
-            width: ceil(fitting.width) + padding.left + padding.right,
-            height: ceil(fitting.height) + padding.top + padding.bottom)
+            with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading])
+
+        let horizontalPadding: CGFloat = 13
+        let iconWidth: CGFloat = 16
+        let gap: CGFloat = 8
+        let contentWidth = min(maxTextWidth, ceil(fitting.width))
+        let width = max(112, contentWidth + horizontalPadding * 2 + iconWidth + gap)
+        let height = max(38, min(72, ceil(fitting.height) + 18))
+        let size = NSSize(width: width, height: height)
+
         panel.setFrame(NSRect(origin: panel.frame.origin, size: size), display: false)
+        effectView.frame = NSRect(origin: .zero, size: size)
+
+        let iconY = floor((height - iconWidth) / 2)
+        iconView.frame = NSRect(
+            x: horizontalPadding,
+            y: iconY,
+            width: iconWidth,
+            height: iconWidth)
+        label.frame = NSRect(
+            x: horizontalPadding + iconWidth + gap,
+            y: 7,
+            width: width - horizontalPadding * 2 - iconWidth - gap,
+            height: height - 14)
         label.attributedStringValue = attributed
 
-        let color = isError
-            ? NSColor(red: 145 / 255, green: 28 / 255, blue: 28 / 255, alpha: 0.96)
-            : NSColor(calibratedWhite: 32 / 255, alpha: 0.94)
-        panel.backgroundColor = color
+        let symbolName: String
+        if isError {
+            symbolName = "exclamationmark.circle.fill"
+            iconView.contentTintColor = .systemRed
+        } else if message.lowercased().contains("working") {
+            symbolName = "sparkles"
+            iconView.contentTintColor = .secondaryLabelColor
+        } else {
+            symbolName = "checkmark.circle.fill"
+            iconView.contentTintColor = .systemGreen
+        }
+        iconView.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: isError ? "Error" : "Status")
 
         position()
+        startFollowingPointer()
+
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.1
+            context.duration = 0.12
             panel.animator().alphaValue = 1
         }
 
         if duration > 0 {
-            hideTask = Task { [weak self, panel] in
-                try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                NSAnimationContext.runAnimationGroup({ context in
+            hideTask = Task { [weak self] in
+                try? await Task.sleep(
+                    nanoseconds: UInt64(duration * 1_000_000_000))
+                guard let self, !Task.isCancelled, let panel = self.panel else { return }
+
+                NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.15
                     panel.animator().alphaValue = 0
-                }, completionHandler: {
-                    panel.orderOut(nil)
-                })
-                _ = self
+                }
+                try? await Task.sleep(nanoseconds: 170_000_000)
+                guard !Task.isCancelled else { return }
+                panel.orderOut(nil)
+                self.stopFollowingPointer()
+                self.hideTask = nil
             }
         }
     }
 
     private func createPanel() {
-        let label = NSTextField(labelWithString: "")
-        label.lineBreakMode = .byWordWrapping
-        label.autoresizingMask = [.width]
-        label.frame = NSRect(x: 12, y: 8, width: 336, height: 18)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 40),
+            contentRect: NSRect(x: 0, y: 0, width: 180, height: 38),
             styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered, defer: false)
+            backing: .buffered,
+            defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.level = .floating
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.contentView = label
         panel.isReleasedWhenClosed = false
+        panel.ignoresMouseEvents = true
+
+        let effect = NSVisualEffectView(frame: panel.contentView?.bounds ?? .zero)
+        effect.autoresizingMask = [.width, .height]
+        effect.material = .hudWindow
+        effect.state = .active
+        effect.blendingMode = .behindWindow
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 10
+        effect.layer?.cornerCurve = .continuous
+        effect.layer?.masksToBounds = true
+        effect.layer?.borderWidth = 0.5
+        effect.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
+
+        let icon = NSImageView(frame: .zero)
+        icon.imageScaling = .scaleProportionallyDown
+
+        let label = NSTextField(labelWithString: "")
+        label.isEditable = false
+        label.isSelectable = false
+        label.drawsBackground = false
+        label.isBordered = false
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+
+        effect.addSubview(icon)
+        effect.addSubview(label)
+        panel.contentView = effect
+
         self.panel = panel
+        self.effectView = effect
+        self.iconView = icon
         self.label = label
     }
 
-    /// Keeps the label near the pointer (clamped to screen edges), mirroring
-    /// the GNOME follow-the-pointer behavior.
+    private func startFollowingPointer() {
+        guard followTimer == nil else { return }
+        let timer = Timer(
+            timeInterval: 1.0 / 30.0,
+            target: self,
+            selector: #selector(followPointerTick),
+            userInfo: nil,
+            repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        followTimer = timer
+    }
+
+    private func stopFollowingPointer() {
+        followTimer?.invalidate()
+        followTimer = nil
+    }
+
+    @objc private func followPointerTick() {
+        position()
+    }
+
     private func position() {
         guard let panel else { return }
         let mouse = NSEvent.mouseLocation
-        var x = mouse.x + 16
-        var y = mouse.y - panel.frame.height - 20
-        for screen in NSScreen.screens {
-            if screen.frame.contains(mouse) {
-                x = min(max(x, screen.frame.minX + 8),
-                        screen.frame.maxX - panel.frame.width - 8)
-                y = min(max(y, screen.frame.minY + 8),
-                        screen.frame.maxY - panel.frame.height - 8)
-                break
-            }
+        var x = mouse.x + 18
+        var y = mouse.y - panel.frame.height - 18
+
+        for screen in NSScreen.screens where screen.frame.contains(mouse) {
+            let visible = screen.visibleFrame
+            x = min(
+                max(x, visible.minX + 8),
+                visible.maxX - panel.frame.width - 8)
+            y = min(
+                max(y, visible.minY + 8),
+                visible.maxY - panel.frame.height - 8)
+            break
         }
+
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }
