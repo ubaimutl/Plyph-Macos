@@ -175,6 +175,9 @@ enum AXMenuAction {
                 }
             }
         }
+        return false
+    }
+
     static func isCopyEnabled(in app: NSRunningApplication) -> Bool {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var menuBarRef: CFTypeRef?

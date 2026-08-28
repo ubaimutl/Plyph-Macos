@@ -44,7 +44,7 @@ final class ActionPaletteController: NSObject {
             guard let self = self else { return }
             if event.type == .leftMouseDown || event.type == .rightMouseDown {
                 // If clicked outside the panel, close it.
-                if let panel = self.panel, !NSMouseInRect(NSEvent.mouseLocation, panel.frame, false) {
+                if let panel = self.panel, !panel.frame.contains(NSEvent.mouseLocation) {
                     self.close()
                 }
             } else if event.type == .keyDown {
