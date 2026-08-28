@@ -12,6 +12,7 @@ final class ActionPaletteController: NSObject {
     private var items: [PaletteItem] = []
     private var selectedRow = 0
     private var modeHandler: ((RunMode) -> Void)?
+    private var eventMonitor: Any?
 
     struct PaletteItem {
         let name: String
@@ -36,9 +37,27 @@ final class ActionPaletteController: NSObject {
         table?.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         table?.scrollRowToVisible(0)
         panel?.makeKeyAndOrderFront(nil)
+        
+        // Start global monitor to capture clicks outside and keyboard navigation 
+        // since our panel is strictly non-key to preserve Safari's selection.
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self = self else { return }
+            if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                // If clicked outside the panel, close it.
+                if let panel = self.panel, !NSMouseInRect(NSEvent.mouseLocation, panel.frame, false) {
+                    self.close()
+                }
+            } else if event.type == .keyDown {
+                self.handleKey(event)
+            }
+        }
     }
 
     func close() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
         guard let panel else { return }
         self.panel = nil
         panel.orderOut(nil)
@@ -279,25 +298,22 @@ extension ActionPaletteController: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-// MARK: - Panel delegate (close when the palette loses key focus)
+// MARK: - Panel delegate (close when the palette loses key focus or on click outside)
 
 extension ActionPaletteController: NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
-        close()
+        // Since we are no longer key, this won't fire for our panel, but we handle closing via global monitor.
     }
 }
 
 // MARK: - Panel subclass
 
-/// NSPanel subclass that can become key and forwards key events to the
-/// controller via a callback — replacing the invisible PaletteKeyboardView
-/// approach with the simpler, standard NSResponder pattern.
+/// NSPanel subclass that strictly prevents becoming key. This is crucial for Safari
+/// and Chromium web editors: if the palette becomes key, the browser's DOM loses
+/// focus and clears its active selection, breaking text replacement.
 final class ActionPalettePanel: NSPanel {
     var keyHandler: ((NSEvent) -> Void)?
 
-    override var canBecomeKey: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        keyHandler?(event)
-    }
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }

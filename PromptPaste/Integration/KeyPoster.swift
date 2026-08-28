@@ -46,43 +46,25 @@ enum KeyPoster {
     }
 
     private static func postCommandKey(key: UInt16, to processIdentifier: pid_t?) {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        source?.setLocalEventsFilterDuringSuppressionState(
-            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
-            state: .eventSuppressionStateSuppressionInterval
-        )
-
-        let cmdKeyCode = CGKeyCode(kVK_Command)
+        // Use HIDSystemState. This is the critical difference for WebKit and VMs.
+        // It injects the event at the lowest level of the window server, 
+        // completely bypassing session-level virtualization quirks.
+        let source = CGEventSource(stateID: .hidSystemState)
+        
         let targetKeyCode = CGKeyCode(key)
-
-        let cmdFlag = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x000008)
-
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: true)
-        let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true)
-        let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: false)
-
-        cmdDown?.flags = cmdFlag
-        keyCharDown?.flags = cmdFlag
-        keyCharUp?.flags = cmdFlag
-        cmdUp?.flags = []
-
-        post(cmdDown, to: processIdentifier)
-        usleep(20_000)
-        post(keyCharDown, to: processIdentifier)
-        usleep(35_000)
-        post(keyCharUp, to: processIdentifier)
-        usleep(20_000)
-        post(cmdUp, to: processIdentifier)
-        usleep(20_000)
+        let cmdFlag = CGEventFlags.maskCommand
+        
+        guard let keyCharDown = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: true),
+              let keyCharUp = CGEvent(keyboardEventSource: source, virtualKey: targetKeyCode, keyDown: false)
+        else { return }
+        
+        keyCharDown.flags = cmdFlag
+        keyCharUp.flags = cmdFlag
+        
+        // Post purely to the HID event tap.
+        keyCharDown.post(tap: .cghidEventTap)
+        usleep(40_000) // 40ms dwell
+        keyCharUp.post(tap: .cghidEventTap)
     }
 
-    private static func post(_ event: CGEvent?, to processIdentifier: pid_t?) {
-        guard let event else { return }
-        if let processIdentifier {
-            event.postToPid(processIdentifier)
-        } else {
-            event.post(tap: .cgSessionEventTap)
-        }
-    }
 }
