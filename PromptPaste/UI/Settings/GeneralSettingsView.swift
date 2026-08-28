@@ -15,6 +15,8 @@ struct GeneralSettingsView: View {
                 shortcutsGroup
                 behaviorGroup
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { accessibilityTrusted = AXAccess.isTrusted }

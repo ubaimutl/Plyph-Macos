@@ -34,33 +34,38 @@ enum KeyPoster {
     }
 
     static func postCopy(to processIdentifier: pid_t? = nil) {
-        postCommand(UInt16(kVK_ANSI_C), to: processIdentifier)
+        postKeyCombination(key: UInt16(kVK_ANSI_C), flags: [.maskCommand], to: processIdentifier)
     }
 
     static func postPaste(to processIdentifier: pid_t? = nil) {
-        postCommand(UInt16(kVK_ANSI_V), to: processIdentifier)
+        postKeyCombination(key: UInt16(kVK_ANSI_V), flags: [.maskCommand], to: processIdentifier)
     }
 
     static func postUndo(to processIdentifier: pid_t? = nil) {
-        postCommand(UInt16(kVK_ANSI_Z), to: processIdentifier)
+        postKeyCombination(key: UInt16(kVK_ANSI_Z), flags: [.maskCommand], to: processIdentifier)
     }
 
-    private static func postCommand(_ key: UInt16, to processIdentifier: pid_t?) {
-        let source = CGEventSource(stateID: .hidSystemState)
-        let down = CGEvent(
+    private static func postKeyCombination(key: UInt16, flags: CGEventFlags, to processIdentifier: pid_t?) {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        guard let down = CGEvent(
             keyboardEventSource: source,
             virtualKey: CGKeyCode(key),
-            keyDown: true)
-        down?.flags = [.maskCommand]
-
-        let up = CGEvent(
+            keyDown: true),
+              let up = CGEvent(
             keyboardEventSource: source,
             virtualKey: CGKeyCode(key),
             keyDown: false)
-        up?.flags = [.maskCommand]
+        else { return }
+
+        down.flags = flags
+        up.flags = flags
 
         post(down, to: processIdentifier)
+        // 30ms dwell time between key-down and key-up gives the WindowServer,
+        // WebKit XPC, and Electron IPC time to register the key-down event.
+        usleep(30_000)
         post(up, to: processIdentifier)
+        usleep(20_000)
     }
 
     private static func post(_ event: CGEvent?, to processIdentifier: pid_t?) {

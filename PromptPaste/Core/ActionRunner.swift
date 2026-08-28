@@ -106,15 +106,14 @@ final class ActionRunner: ObservableObject {
         isBusy = false
     }
 
-    func openActionPalette() {
+    func openActionPalette(forcePopup: Bool = false) {
         guard !isBusy else { return }
         let targetApp = NSWorkspace.shared.frontmostApplication
-        switch settings.actionPalettePosition {
-        case "monitor-center", "near-pointer":
+        if forcePopup || settings.actionPalettePosition != "disabled" {
             ActionPaletteController.shared.show(modeHandler: { [weak self] mode in
                 Task { await self?.run(mode: mode, targetApp: targetApp) }
             })
-        default:
+        } else {
             AppDelegate.shared?.statusItemController?.openMenu()
         }
     }

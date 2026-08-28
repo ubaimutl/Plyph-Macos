@@ -20,10 +20,10 @@ enum TextReplacer {
         if let targetApp {
             targetApp.activate(options: [.activateIgnoringOtherApps])
             await waitForApp(targetApp, timeout: 1.5)
-            // Wait until the target app (including its sandboxed WebContent or
-            // renderer process) has restored its first responder. A fixed sleep
-            // is fragile; AX polling returns as soon as focus is ready.
+            // Allow WebKit WebContent / Chromium renderer processes time to
+            // restore first responder focus in the DOM after app activation.
             await AXElement.waitFocusRestored(in: targetApp, timeout: 1.0)
+            try? await Task.sleep(nanoseconds: 60_000_000)
         }
 
         guard await KeyPoster.waitModifiersReleased() else {
@@ -46,21 +46,19 @@ enum TextReplacer {
             return true
         }
 
-        // Safari/WebKit and Chromium page editors live in separate content
-        // processes. Posting Cmd+V to Safari's/Chrome's main PID only reaches
-        // native browser UI such as the address bar. Since the target app has
-        // already been reactivated above, a normal HID event is delivered to
-        // the actual focused page editor, regardless of which helper PID owns it.
+        // Fallback: Clipboard + Cmd+V paste.
+        // Safari/WebKit and Chromium webpage editors (inputs, textareas,
+        // contenteditable, Google Docs, Notion) live in separate helper processes.
+        // Posting Cmd+V as a global HID event delivers it to the frontmost
+        // active web responder regardless of which process owns it.
         ClipboardStore.write(text)
         let writtenCount = ClipboardStore.changeCount
-        // Yield briefly to ensure the pasteboard write is committed and visible
-        // to other processes before the key event is injected.
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        try? await Task.sleep(nanoseconds: 30_000_000)
         KeyPoster.postPaste()
 
-        // Allow extra time for the content process to paste and update the
-        // pasteboard change count. 750 ms covers slow Electron and WebKit pages.
-        try? await Task.sleep(nanoseconds: 750_000_000)
+        // Allow target app time to process the paste event before restoring
+        // previous clipboard contents.
+        try? await Task.sleep(nanoseconds: 600_000_000)
         if snapshot != nil && ClipboardStore.changeCount == writtenCount {
             ClipboardStore.restore(snapshot)
         }

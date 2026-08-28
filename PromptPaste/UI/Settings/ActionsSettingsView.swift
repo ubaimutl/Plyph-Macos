@@ -13,6 +13,8 @@ struct ActionsSettingsView: View {
                 runPromptGroup
                 customActionsGroup
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .sheet(isPresented: $showEditor, onDismiss: { editingAction = nil }) {

@@ -68,7 +68,5 @@ struct SettingsRootView: View {
                 .tabItem { Label("Prompts", systemImage: "doc.text") }
         }
         .frame(minWidth: 740, minHeight: 540)
-        // No extra outer padding — the window chrome and tab view provide
-        // appropriate insets for a native macOS preferences window.
     }
 }

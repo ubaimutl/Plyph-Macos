@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor func applySelectionDotSetting() {
         if SettingsStore.shared.selectionDotEnabled {
             SelectionDotController.shared.start { [weak self] in
-                self?.runner?.openActionPalette()
+                self?.runner?.openActionPalette(forcePopup: true)
             }
         } else {
             SelectionDotController.shared.stop()

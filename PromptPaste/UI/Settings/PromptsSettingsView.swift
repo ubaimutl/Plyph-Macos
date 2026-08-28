@@ -11,6 +11,8 @@ struct PromptsSettingsView: View {
                 builtInGroup
                 variablesGroup
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

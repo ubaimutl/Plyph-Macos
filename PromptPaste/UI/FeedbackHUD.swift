@@ -29,6 +29,8 @@ final class FeedbackHUD: NSObject {
         present(message: message, isError: isError, duration: duration)
     }
 
+    private var stackView: NSStackView?
+
     private func present(message: String, isError: Bool, duration: TimeInterval) {
         hideTask?.cancel()
         hideTask = nil
@@ -43,7 +45,7 @@ final class FeedbackHUD: NSObject {
             let iconView
         else { return }
 
-        let font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
+        let font = NSFont.systemFont(ofSize: 13, weight: .medium)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor.labelColor,
@@ -54,28 +56,17 @@ final class FeedbackHUD: NSObject {
             with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading])
 
-        let horizontalPadding: CGFloat = 13
+        let horizontalPadding: CGFloat = 16
         let iconWidth: CGFloat = 16
         let gap: CGFloat = 8
         let contentWidth = min(maxTextWidth, ceil(fitting.width))
-        let width = max(112, contentWidth + horizontalPadding * 2 + iconWidth + gap)
-        let height = max(38, min(72, ceil(fitting.height) + 18))
+        let width = max(120, contentWidth + horizontalPadding * 2 + iconWidth + gap)
+        let height = max(38, ceil(fitting.height) + 18)
         let size = NSSize(width: width, height: height)
 
         panel.setFrame(NSRect(origin: panel.frame.origin, size: size), display: false)
         effectView.frame = NSRect(origin: .zero, size: size)
 
-        let iconY = floor((height - iconWidth) / 2)
-        iconView.frame = NSRect(
-            x: horizontalPadding,
-            y: iconY,
-            width: iconWidth,
-            height: iconWidth)
-        label.frame = NSRect(
-            x: horizontalPadding + iconWidth + gap,
-            y: 7,
-            width: width - horizontalPadding * 2 - iconWidth - gap,
-            height: height - 14)
         label.attributedStringValue = attributed
 
         let symbolName: String
@@ -150,23 +141,42 @@ final class FeedbackHUD: NSObject {
 
         let icon = NSImageView(frame: .zero)
         icon.imageScaling = .scaleProportionallyDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 16).isActive = true
 
         let label = NSTextField(labelWithString: "")
         label.isEditable = false
         label.isSelectable = false
         label.drawsBackground = false
         label.isBordered = false
+        label.alignment = .center
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
 
-        effect.addSubview(icon)
-        effect.addSubview(label)
+        let stack = NSStackView(views: [icon, label])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.distribution = .fill
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        effect.addSubview(stack)
         panel.contentView = effect
+
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: effect.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: effect.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: effect.trailingAnchor, constant: -14)
+        ])
 
         self.panel = panel
         self.effectView = effect
         self.iconView = icon
         self.label = label
+        self.stackView = stack
     }
 
     private func startFollowingPointer() {

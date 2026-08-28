@@ -41,15 +41,18 @@ enum AXElement {
         return unsafeBitCast(raw, to: AXUIElement.self)
     }
 
-    /// Polls the target app's focused element until it is non-nil, indicating
-    /// that the app (including any sandboxed content subprocess, e.g. WebKit's
-    /// WebContent) has restored its first responder after being activated.
+    /// Waits for the target app's keyboard focus to stabilise after activation.
     ///
-    /// Browsers and Electron apps restore focus asynchronously after their main
-    /// process is activated; a fixed sleep is fragile across machine speeds and
-    /// page complexity. This replaces every fixed-delay wait with an event-driven
-    /// poll so events are posted as early as possible while never missing slower
-    /// systems.
+    /// Browsers (Safari, Chrome) and Electron apps restore keyboard focus to
+    /// their renderer/content subprocess asynchronously after the main process
+    /// is activated. Simply waiting until `kAXFocusedUIElementAttribute` is
+    /// non-nil is insufficient because the browser's native chrome (URL bar,
+    /// toolbar) is *always* focused — the renderer only takes over later.
+    ///
+    /// Strategy: enforce a minimum wait of 100 ms (the absolute floor for the
+    /// renderer hand-off), then keep polling until the focused element stops
+    /// changing between two consecutive 50 ms checks, indicating focus has
+    /// settled on the final target. Hard timeout prevents hangs.
     ///
     /// - Parameters:
     ///   - app: The target `NSRunningApplication`.
@@ -60,14 +63,35 @@ enum AXElement {
     ) async {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         let deadline = Date().addingTimeInterval(timeout)
+
+        // Minimum wait — the renderer hand-off never completes in under ~80 ms.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        // Now poll for stability: two consecutive reads returning the same
+        // element means focus has settled.
+        var previousDescription: String?
         while Date() < deadline {
             var value: CFTypeRef?
             let err = AXUIElementCopyAttributeValue(
                 appElement, kAXFocusedUIElementAttribute as CFString, &value)
-            if err == .success, value != nil {
+            let desc: String?
+            if err == .success, let el = value {
+                // Compare by AX description since AXUIElement is not Equatable.
+                var role: CFTypeRef?
+                AXUIElementCopyAttributeValue(
+                    unsafeBitCast(el, to: AXUIElement.self),
+                    kAXRoleAttribute as CFString, &role)
+                desc = role as? String
+            } else {
+                desc = nil
+            }
+
+            if desc != nil && desc == previousDescription {
+                // Focus has stabilised — safe to post key events.
                 return
             }
-            try? await Task.sleep(nanoseconds: 20_000_000)  // 20 ms
+            previousDescription = desc
+            try? await Task.sleep(nanoseconds: 50_000_000)  // 50 ms
         }
     }
 
