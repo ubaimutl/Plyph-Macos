@@ -1,13 +1,11 @@
 import AppKit
+import ApplicationServices
 import Foundation
 
 /// Orchestrates a full action run: capture the selection, call the AI, then
-/// either preview the result or replace it directly — mirroring the GNOME
-/// extension's `_run()`/`_replace()` flow, including the busy lock, status
-/// feedback and undo bookkeeping.
+/// either preview the result or replace it directly.
 @MainActor
 final class ActionRunner: ObservableObject {
-    /// True while an action is running; new triggers are ignored (GNOME parity).
     @Published private(set) var isBusy = false
 
     private let settings: SettingsStore
@@ -15,7 +13,6 @@ final class ActionRunner: ObservableObject {
     private let statusIcons: StatusItemController?
     let undoController: UndoController
 
-    /// Currently open preview window, if any.
     private var previewController: PreviewController?
 
     init(
@@ -83,12 +80,19 @@ final class ActionRunner: ObservableObject {
 
             if settings.previewResults {
                 showPreview(
-                    output: output, targetApp: frontApp, snapshot: selection.clipboardSnapshot,
-                    mode: mode, actionName: actionName)
+                    output: output,
+                    targetApp: frontApp,
+                    snapshot: selection.clipboardSnapshot,
+                    sourceElement: selection.focusedElement,
+                    mode: mode,
+                    actionName: actionName)
             } else {
                 let message = replaceMessage(mode: mode, actionName: actionName)
                 try await replace(
-                    output, snapshot: selection.clipboardSnapshot, targetApp: frontApp,
+                    output,
+                    snapshot: selection.clipboardSnapshot,
+                    targetApp: frontApp,
+                    sourceElement: selection.focusedElement,
                     message: message)
             }
         } catch {
@@ -105,7 +109,6 @@ final class ActionRunner: ObservableObject {
                 Task { await self?.run(mode: mode) }
             })
         default:
-            // GNOME opens the panel menu when the palette is disabled.
             AppDelegate.shared?.statusItemController?.openMenu()
         }
     }
@@ -113,22 +116,34 @@ final class ActionRunner: ObservableObject {
     // MARK: Preview
 
     private func showPreview(
-        output: String, targetApp: NSRunningApplication?, snapshot: ClipboardSnapshot?,
-        mode: RunMode, actionName: String?
+        output: String,
+        targetApp: NSRunningApplication?,
+        snapshot: ClipboardSnapshot?,
+        sourceElement: AXUIElement?,
+        mode: RunMode,
+        actionName: String?
     ) {
         previewController?.close()
         statusIcons?.restoreDefault()
         feedback("Ready to review", error: false, duration: 1.5)
+
         let controller = PreviewController(
             result: output,
             onReplace: { [weak self] text in
                 guard let self else { return }
                 self.previewController = nil
-                Task {
-                    let message = self.replaceMessage(mode: mode, actionName: actionName)
-                    try? await self.replace(
-                        text, snapshot: snapshot, targetApp: targetApp, message: message,
-                        previewReplaced: true)
+                Task { @MainActor in
+                    do {
+                        let message = self.replaceMessage(mode: mode, actionName: actionName)
+                        try await self.replace(
+                            text,
+                            snapshot: snapshot,
+                            targetApp: targetApp,
+                            sourceElement: sourceElement,
+                            message: message)
+                    } catch {
+                        self.handleError(error, mode: mode)
+                    }
                     self.isBusy = false
                 }
             },
@@ -146,6 +161,7 @@ final class ActionRunner: ObservableObject {
                 self.feedback("Cancelled", error: false, duration: 1.5)
                 self.isBusy = false
             })
+
         previewController = controller
         controller.show()
     }
@@ -153,28 +169,28 @@ final class ActionRunner: ObservableObject {
     // MARK: Replacement
 
     private func replace(
-        _ output: String, snapshot: ClipboardSnapshot?, targetApp: NSRunningApplication?,
-        message: String, previewReplaced: Bool = false
+        _ output: String,
+        snapshot: ClipboardSnapshot?,
+        targetApp: NSRunningApplication?,
+        sourceElement: AXUIElement?,
+        message: String
     ) async throws {
-        let usedAX = try await TextReplacer.replace(
-            output, snapshot: snapshot, targetApp: targetApp)
+        _ = try await TextReplacer.replace(
+            output,
+            snapshot: snapshot,
+            targetApp: targetApp,
+            sourceElement: sourceElement)
         undoController.remember(app: NSWorkspace.shared.frontmostApplication ?? targetApp)
         statusIcons?.showSuccess()
         feedback(message, error: false, duration: 1.5)
-        _ = usedAX
     }
 
     private func replaceMessage(mode: RunMode, actionName: String?) -> String {
-        if let actionName {
-            return actionName
-        }
+        if let actionName { return actionName }
         switch mode {
-        case .rewrite:
-            return "Rewritten"
-        case .prompt:
-            return "Generated"
-        default:
-            return "Corrected"
+        case .rewrite: return "Rewritten"
+        case .prompt: return "Generated"
+        default: return "Corrected"
         }
     }
 
