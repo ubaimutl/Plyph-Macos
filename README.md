@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="PromptPaste/Support/Assets.xcassets/AppBrandIcon.imageset/promptpaste-app.svg" width="128" height="128" alt="PromptPaste logo">
+  <img src="Plyph/Support/Assets.xcassets/AppBrandIcon.imageset/plyph-app.svg" width="128" height="128" alt="Plyph logo">
 </p>
 
-<h1 align="center">PromptPaste for macOS</h1>
+<h1 align="center">Plyph for macOS</h1>
 
 <p align="center">
   Select text anywhere on your Mac. Run an AI action. Replace it in place.
@@ -30,7 +30,7 @@
 ## Preview
 
 <p align="center">
-  <img src="docs/media/screenshot-placeholder.svg" width="860" alt="Reserved space for a PromptPaste application screenshot">
+  <img src="docs/media/screenshot-placeholder.svg" width="860" alt="Reserved space for a Plyph application screenshot">
 </p>
 
 <p align="center"><em>A polished application screenshot will be added here.</em></p>
@@ -38,18 +38,18 @@
 ### Demo video
 
 <p align="center">
-  <img src="docs/media/video-placeholder.svg" width="860" alt="Reserved space for a PromptPaste demonstration video">
+  <img src="docs/media/video-placeholder.svg" width="860" alt="Reserved space for a Plyph demonstration video">
 </p>
 
 <p align="center"><em>The walkthrough video will be linked here when it is ready.</em></p>
 
 ## AI actions where you actually type
 
-PromptPaste turns selected text into an actionable surface.
+Plyph turns selected text into an actionable surface.
 
-Select text in Safari, Chrome, Firefox, VS Code, Notes, or another macOS app and PromptPaste can appear beside the selection. Correct it, rewrite it, translate it, summarize it, change its tone, or run any custom prompt — then replace the original text directly.
+Select text in Safari, Chrome, Firefox, VS Code, Notes, or another macOS app and Plyph can appear beside the selection. Correct it, rewrite it, translate it, summarize it, change its tone, or run any custom prompt — then replace the original text directly.
 
-There is no separate chat workflow to manage. PromptPaste stays out of the way until you need it.
+There is no separate chat workflow to manage. Plyph stays out of the way until you need it.
 
 ## Features
 
@@ -66,11 +66,11 @@ There is no separate chat workflow to manage. PromptPaste stays out of the way u
 ## Getting started
 
 > [!NOTE]
-> A packaged release is planned. Until then, PromptPaste can be built from source with Xcode.
+> A packaged release is planned. Until then, Plyph can be built from source with Xcode.
 
-1. Build and launch PromptPaste.
+1. Build and launch Plyph.
 2. Grant Accessibility access when macOS asks for it.
-3. Open **Settings** from the PromptPaste menu-bar icon.
+3. Open **Settings** from the Plyph menu-bar icon.
 4. Select a provider and configure its model and credential.
 5. Select text in Safari, Firefox, Chrome, VS Code, a text editor, or another accessible application.
 6. Open the action palette from the floating button or a configured shortcut.
@@ -89,7 +89,7 @@ There is no separate chat workflow to manage. PromptPaste stays out of the way u
 
 ## Providers
 
-PromptPaste communicates directly with the provider you configure—there is no PromptPaste-hosted relay.
+Plyph communicates directly with the provider you configure—there is no Plyph-hosted relay.
 
 | Provider              | Connection                                    |
 | --------------------- | --------------------------------------------- |
@@ -113,12 +113,12 @@ Provider endpoints, model names, account identifiers, and token limits are confi
 
 ## Build from source
 
-Clone the repository, open `PromptPaste.xcodeproj` in Xcode, or build the unsigned application from Terminal:
+Clone the repository, open `Plyph.xcodeproj` in Xcode, or build the unsigned application from Terminal:
 
 ```sh
 xcodebuild \
-  -project PromptPaste.xcodeproj \
-  -scheme PromptPaste \
+  -project Plyph.xcodeproj \
+  -scheme Plyph \
   -configuration Release \
   -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO build
@@ -128,7 +128,7 @@ Xcode places the result in its DerivedData directory unless you provide a custom
 
 ## Accessibility and privacy
 
-PromptPaste first asks macOS Accessibility APIs for the selected text and replaces it directly when the target application supports the standard attributes. For applications that do not expose selections this way, an optional simulated Copy/Paste fallback is available.
+Plyph first asks macOS Accessibility APIs for the selected text and replaces it directly when the target application supports the standard attributes. For applications that do not expose selections this way, an optional simulated Copy/Paste fallback is available.
 
 The fallback snapshots the current pasteboard, waits for an actual clipboard change, and restores the previous contents when possible. Accessibility support still varies across browsers, secure fields, remote desktops, sandboxed applications, and custom text editors.
 
@@ -136,8 +136,8 @@ Selected text is sent only when you invoke an action, and it is sent directly to
 
 ## Project status
 
-PromptPaste is currently pre-release. Packaging, signing, final screenshots, and a demonstration video will be prepared for a future release.
+Plyph is currently pre-release. Packaging, signing, final screenshots, and a demonstration video will be prepared for a future release.
 
 ## License
 
-PromptPaste is distributed under the [GNU General Public License, version 3 or later](LICENSE).
+Plyph is distributed under the [GNU General Public License, version 3 or later](LICENSE).
