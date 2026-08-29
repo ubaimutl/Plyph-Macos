@@ -14,8 +14,8 @@ jobs:
   build:
     runs-on: macos-14
     env:
-      SCHEME: PromptPaste
-      PROJECT: PromptPaste.xcodeproj
+      SCHEME: Plyph
+      PROJECT: Plyph.xcodeproj
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Generate canonical PromptPaste app icons
+      - name: Generate canonical Plyph app icons
         run: |
           python3 -m venv "$RUNNER_TEMP/icon-venv"
           source "$RUNNER_TEMP/icon-venv/bin/activate"
@@ -35,8 +35,8 @@ jobs:
           from pathlib import Path
           import cairosvg
 
-          source = Path("PromptPaste/Support/Assets.xcassets/AppBrandIcon.imageset/promptpaste-app.svg")
-          output = Path("PromptPaste/Support/Assets.xcassets/AppIcon.appiconset")
+          source = Path("Plyph/Support/Assets.xcassets/AppBrandIcon.imageset/plyph-app.svg")
+          output = Path("Plyph/Support/Assets.xcassets/AppIcon.appiconset")
           sizes = {
               "icon_16x16.png": 16,
               "icon_16x16@2x.png": 32,
@@ -92,15 +92,15 @@ jobs:
       - name: Package unsigned app
         run: |
           mkdir -p artifact
-          ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/PromptPaste.app" \
-            "artifact/PromptPaste.app"
+          ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/Plyph.app" \
+            "artifact/Plyph.app"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
-            "artifact/PromptPaste.app" \
-            "artifact/PromptPaste-macOS.zip"
+            "artifact/Plyph.app" \
+            "artifact/Plyph-macOS.zip"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PromptPaste-macOS
-          path: artifact/PromptPaste-macOS.zip
+          name: Plyph-macOS
+          path: artifact/Plyph-macOS.zip
           if-no-files-found: error
