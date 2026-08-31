@@ -56,6 +56,7 @@ Plyph stays out of the way until you need it.
 - **Replace in place** — generated text can replace the original selection directly.
 - **Review when you want it** — preview the result before replacing, or enable a faster direct-replacement workflow.
 - **Bring your own AI** — use Ollama locally or connect Groq, Gemini, OpenAI, OpenRouter, Cerebras, Cloudflare Workers AI, or Vercel AI Gateway.
+- **Action Library** — browse bundled ready-made actions for writing, communication, reading, development, translation, and productivity, then add editable copies to your collection.
 - **Unlimited custom actions** — build reusable actions for translation, tone changes, summaries, replies, coding tasks, or your own workflows.
 - **Per-action models** — assign different providers, models, and limits to different actions.
 - **Global shortcuts** — run common actions without touching the mouse.
@@ -77,7 +78,9 @@ Plyph stays out of the way until you need it.
 7. Open the action palette from the floating button or a configured shortcut.
 8. Review the result, then choose **Replace**, **Copy**, or **Cancel**.
 
-### Included actions
+### Built-in actions and Action Library
+
+Plyph includes these actions by default:
 
 | Action                | Purpose                                                                          |
 | --------------------- | -------------------------------------------------------------------------------- |
@@ -87,6 +90,8 @@ Plyph stays out of the way until you need it.
 | Summarize             | Produce a concise paragraph or short bullet list while preserving key facts.     |
 | Translate             | Translate into the language configured in Settings.                              |
 | Adjust tone           | Rewrite using the tone configured in Settings.                                   |
+
+The bundled **Action Library** provides additional ready-made actions across Writing, Communication, Reading, Development, Translation, and Productivity. You can search or filter the catalog, add any action to **My Actions**, and edit the installed copy like any other custom action. The catalog is bundled with Plyph and can be browsed offline.
 
 ## Providers
 
