@@ -1,0 +1,121 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      SCHEME: Plyph
+      PROJECT: Plyph.xcodeproj
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Generate canonical Plyph app icons
+        run: |
+          python3 -m venv "$RUNNER_TEMP/icon-venv"
+          source "$RUNNER_TEMP/icon-venv/bin/activate"
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet cairosvg
+          python <<'PY'
+          from pathlib import Path
+          import cairosvg
+
+          source = Path("Plyph/Support/Assets.xcassets/AppBrandIcon.imageset/plyph-app.svg")
+          output = Path("Plyph/Support/Assets.xcassets/AppIcon.appiconset")
+          sizes = {
+              "icon_16x16.png": 16,
+              "icon_16x16@2x.png": 32,
+              "icon_32x32.png": 32,
+              "icon_32x32@2x.png": 64,
+              "icon_128x128.png": 128,
+              "icon_128x128@2x.png": 256,
+              "icon_256x256.png": 256,
+              "icon_256x256@2x.png": 512,
+              "icon_512x512.png": 512,
+              "icon_512x512@2x.png": 1024,
+          }
+
+          svg = source.read_bytes()
+          for name, size in sizes.items():
+              cairosvg.svg2png(
+                  bytestring=svg,
+                  write_to=str(output / name),
+                  output_width=size,
+                  output_height=size,
+              )
+          PY
+
+      - name: Build application
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify || xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Run unit tests
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/TestDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Package unsigned app
+        run: |
+          mkdir -p artifact
+          ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/Plyph.app" \
+            "artifact/Plyph.app"
+          
+          brew install create-dmg
+          create-dmg \
+            --volname "Plyph" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Plyph.app" 175 120 \
+            --hide-extension "Plyph.app" \
+            --app-drop-link 425 120 \
+            "artifact/Plyph.dmg" \
+            "artifact/Plyph.app"
+
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
+            "artifact/Plyph.app" \
+            "artifact/Plyph-macOS.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Plyph-macOS
+          path: |
+            artifact/Plyph.dmg
+            artifact/Plyph-macOS.zip
+          if-no-files-found: error
